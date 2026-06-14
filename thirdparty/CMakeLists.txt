@@ -40,25 +40,55 @@ else()
     message(FATAL_ERROR "Unsupported CPU architecture: ${BASE_ARCHITECTURE}")
 endif()
 
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/msdf-atlas-gen")
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/nativefiledialog-extended")
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND CMAKE_PREFIX_PATH "${DEVKITPRO}/portlibs/switch")
+    find_package(SDL2 CONFIG REQUIRED)
+
+    if (NOT TARGET SDL2::SDL2-static)
+        add_library(SDL2::SDL2-static STATIC IMPORTED GLOBAL)
+        set_target_properties(SDL2::SDL2-static PROPERTIES
+            IMPORTED_LOCATION "${DEVKITPRO}/portlibs/switch/lib/libSDL2.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${DEVKITPRO}/portlibs/switch/include/SDL2"
+            INTERFACE_LINK_LIBRARIES "EGL;stdc++;glapi;drm_nouveau;nx;pthread"
+            INTERFACE_LINK_DIRECTORIES "${DEVKITPRO}/portlibs/switch/lib;${DEVKITPRO}/libnx/lib")
+    endif()
+
+    if (NOT TARGET SDL2_mixer)
+        add_library(SDL2_mixer STATIC IMPORTED GLOBAL)
+        set_target_properties(SDL2_mixer PROPERTIES
+            IMPORTED_LOCATION "${DEVKITPRO}/portlibs/switch/lib/libSDL2_mixer.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${DEVKITPRO}/portlibs/switch/include/SDL2"
+            INTERFACE_LINK_LIBRARIES "${DEVKITPRO}/portlibs/switch/lib/libSDL2.a;EGL;stdc++;glapi;drm_nouveau;nx;pthread;vorbisidec;modplug;mpg123;opusfile;opus;ogg;FLAC;z"
+            INTERFACE_LINK_DIRECTORIES "${DEVKITPRO}/portlibs/switch/lib;${DEVKITPRO}/libnx/lib")
+    endif()
+else()
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/msdf-atlas-gen")
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/SDL")
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/SDL_mixer")
+endif()
+if (NOT LIBERTY_RECOMP_SWITCH)
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/nativefiledialog-extended")
+endif()
 add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/o1heap")
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/SDL")
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/SDL_mixer")
 add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/plume")
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/ffmpeg-core")
+
+if (NOT LIBERTY_RECOMP_SWITCH)
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/ffmpeg-core")
+endif()
 
 if (APPLE)
     add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/MoltenVK")
 endif()
 
-# GameNetworkingSockets for P2P multiplayer
-set(BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(ENABLE_ICE ON CACHE BOOL "" FORCE)
-set(USE_STEAMWEBRTC OFF CACHE BOOL "" FORCE)
-set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
-add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/GameNetworkingSockets")
+if (NOT LIBERTY_RECOMP_SWITCH)
+    # GameNetworkingSockets for P2P multiplayer
+    set(BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_ICE ON CACHE BOOL "" FORCE)
+    set(USE_STEAMWEBRTC OFF CACHE BOOL "" FORCE)
+    set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+    add_subdirectory("${LIBERTY_RECOMP_THIRDPARTY_ROOT}/GameNetworkingSockets")
+endif()

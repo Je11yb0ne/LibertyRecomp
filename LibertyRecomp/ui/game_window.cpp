@@ -233,6 +233,8 @@ void GameWindow::Init(const char* sdlVideoDriver)
     }
 #elif defined(SDL_VULKAN_ENABLED)
     s_renderWindow = s_pWindow;
+#elif defined(__SWITCH__)
+    s_renderWindow = s_pWindow;
 #elif defined(__linux__)
     s_renderWindow = { info.info.x11.display, info.info.x11.window };
 #elif defined(__APPLE__)

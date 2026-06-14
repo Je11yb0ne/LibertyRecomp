@@ -1,6 +1,25 @@
 #include "paths.h"
 #include <os/process.h>
 
+#if defined(__SWITCH__)
+std::filesystem::path g_executableRoot;
+
+bool CheckPortable()
+{
+    return false;
+}
+
+std::filesystem::path BuildUserPath()
+{
+    return std::filesystem::path("sdmc:/switch/LibertyRecomp");
+}
+
+const std::filesystem::path& GetUserPath()
+{
+    static const std::filesystem::path userPath = BuildUserPath();
+    return userPath;
+}
+#else
 std::filesystem::path g_executableRoot = os::process::GetExecutableRoot();
 std::filesystem::path g_userPath = BuildUserPath();
 
@@ -22,6 +41,8 @@ std::filesystem::path BuildUserPath()
         userPath = std::filesystem::path{ knownPath } / USER_DIRECTORY;
 
     CoTaskMemFree(knownPath);
+#elif defined(__SWITCH__)
+    userPath = "sdmc:/switch/LibertyRecomp";
 #elif defined(__linux__) || defined(__APPLE__)
     const char* homeDir = getenv("HOME");
 #if defined(__linux__)
@@ -56,3 +77,4 @@ const std::filesystem::path& GetUserPath()
 {
     return g_userPath;
 }
+#endif

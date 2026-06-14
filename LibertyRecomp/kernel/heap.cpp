@@ -4,17 +4,29 @@
 #include "function.h"
 #include "xdm.h"
 
+constexpr size_t USER_HEAP_BEGIN = 0x20000;
+
+#ifdef LIBERTY_RECOMP_SWITCH
+// Switch audit builds use a sparse guest memory reservation. Keep o1heap inside
+// the ranges that Memory::Memory() maps until the real page-backed guest memory
+// implementation exists.
+constexpr size_t RESERVED_BEGIN = 64ull * 1024 * 1024;
+constexpr size_t RESERVED_END = 0x80000000;
+constexpr size_t PHYSICAL_HEAP_END = PPC_IMAGE_BASE;
+#else
 // XMA I/O only needs 64KB but we keep some reserved space for safety
 // Shrink reserved region to give more physical memory to the game
 // Original: RESERVED_END = 0xA0000000 (1.5GB physical)
 // New: RESERVED_END = 0x80000000 (2GB physical - from 0x80000000 to 0x100000000)
 constexpr size_t RESERVED_BEGIN = 0x7FEA0000;
 constexpr size_t RESERVED_END = 0x80000000;  // Was 0xA0000000
+constexpr size_t PHYSICAL_HEAP_END = 0x100000000ull;
+#endif
 
 void Heap::Init()
 {
-    heap = o1heapInit(g_memory.Translate(0x20000), RESERVED_BEGIN - 0x20000);
-    physicalHeap = o1heapInit(g_memory.Translate(RESERVED_END), 0x100000000 - RESERVED_END);
+    heap = o1heapInit(g_memory.Translate(USER_HEAP_BEGIN), RESERVED_BEGIN - USER_HEAP_BEGIN);
+    physicalHeap = o1heapInit(g_memory.Translate(RESERVED_END), PHYSICAL_HEAP_END - RESERVED_END);
 }
 
 void* Heap::Alloc(size_t size)

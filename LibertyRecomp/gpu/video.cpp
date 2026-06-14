@@ -3,7 +3,9 @@
 #include "install/platform_paths.h"
 #include "imgui/imgui_common.h"
 #include "imgui/imgui_snapshot.h"
+#ifndef LIBERTY_RECOMP_SWITCH
 #include "imgui/imgui_font_builder.h"
+#endif
 
 #include <app.h>
 #include <bc_diff.h>
@@ -132,17 +134,23 @@ namespace plume
 #ifdef LIBERTY_RECOMP_METAL
 extern std::unique_ptr<RenderInterface> CreateMetalInterface();
 #endif
+#ifndef LIBERTY_RECOMP_SWITCH
 #ifdef SDL_VULKAN_ENABLED
     extern std::unique_ptr<RenderInterface> CreateVulkanInterface(RenderWindow sdlWindow);
 #else
     extern std::unique_ptr<RenderInterface> CreateVulkanInterface();
 #endif
+#endif
 
     static std::unique_ptr<RenderInterface> CreateVulkanInterfaceWrapper() {
+#ifdef LIBERTY_RECOMP_SWITCH
+        return nullptr;
+#else
 #ifdef SDL_VULKAN_ENABLED
         return CreateVulkanInterface(GameWindow::s_renderWindow);
 #else
         return CreateVulkanInterface();
+#endif
 #endif
     }
 }
@@ -1679,7 +1687,9 @@ struct ImGuiPushConstants
     float outline{};
 };
 
+#ifndef LIBERTY_RECOMP_SWITCH
 extern ImFontBuilderIO g_fontBuilderIO;
+#endif
 
 static void CreateImGuiBackend()
 {
@@ -1708,7 +1718,9 @@ static void CreateImGuiBackend()
     g_imFontTexture = LoadTexture(
         decompressZstd(g_im_font_atlas_texture, g_im_font_atlas_texture_uncompressed_size).get(), g_im_font_atlas_texture_uncompressed_size);
 #else
+#ifndef LIBERTY_RECOMP_SWITCH
     io.Fonts->FontBuilderIO = &g_fontBuilderIO;
+#endif
     io.Fonts->Build();
 
     g_imFontTexture = std::make_unique<GuestTexture>(ResourceType::Texture);
@@ -1999,7 +2011,8 @@ bool Video::CreateHostDevice(const char *sdlVideoDriver, bool graphicsApiRetry)
     }
 
     interfaceFunctions.push_back((g_backend == Backend::VULKAN) ? CreateVulkanInterfaceWrapper : CreateD3D12Interface);
-    interfaceFunctions.push_back((g_backend == Backend::VULKAN) ? CreateD3D12Interface : CreateVulkanInterfaceWrapper);
+    if (Config::GraphicsAPI != EGraphicsAPI::D3D12)
+        interfaceFunctions.push_back((g_backend == Backend::VULKAN) ? CreateD3D12Interface : CreateVulkanInterfaceWrapper);
 #elif defined(LIBERTY_RECOMP_METAL)
     interfaceFunctions.push_back((g_backend == Backend::VULKAN) ? CreateVulkanInterfaceWrapper : CreateMetalInterface);
     interfaceFunctions.push_back((g_backend == Backend::VULKAN) ? CreateMetalInterface : CreateVulkanInterfaceWrapper);
@@ -2016,9 +2029,17 @@ bool Video::CreateHostDevice(const char *sdlVideoDriver, bool graphicsApiRetry)
         __try
 #endif
         {
+            fprintf(stderr, "Trying graphics backend: %s.\n",
+                interfaceFunction == CreateVulkanInterfaceWrapper ? "Vulkan" :
+#if defined(LIBERTY_RECOMP_D3D12)
+                interfaceFunction == CreateD3D12Interface ? "D3D12" :
+#endif
+                "Unknown");
+
             g_interface = interfaceFunction();
             if (g_interface == nullptr)
             {
+                fprintf(stderr, "Graphics interface creation returned null.\n");
                 continue;
             }
 
@@ -2079,6 +2100,8 @@ bool Video::CreateHostDevice(const char *sdlVideoDriver, bool graphicsApiRetry)
 
                 break;
             }
+
+            fprintf(stderr, "Graphics device creation returned null.\n");
         }
 #ifdef LIBERTY_RECOMP_D3D12
         __except (EXCEPTION_EXECUTE_HANDLER)

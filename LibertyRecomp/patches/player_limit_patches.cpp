@@ -244,7 +244,7 @@ PPC_FUNC(sub_8267F838)
     __imp__sub_8267F838(ctx, base);
 }
 
-PPC_FUNC_IMPL(__imp__sub_82683998);
+PPC_FUNC_IMPL(__imp__sub_82683998) {}
 PPC_FUNC(sub_82683998)
 {
     __imp__sub_82683998(ctx, base);
@@ -274,7 +274,7 @@ PPC_FUNC(sub_82689828)
     __imp__sub_82689828(ctx, base);
 }
 
-PPC_FUNC_IMPL(__imp__sub_82689998);
+PPC_FUNC_IMPL(__imp__sub_82689998) {}
 PPC_FUNC(sub_82689998)
 {
     __imp__sub_82689998(ctx, base);
@@ -300,13 +300,13 @@ PPC_FUNC(sub_826AF748)
     __imp__sub_826AF748(ctx, base);
 }
 
-PPC_FUNC_IMPL(__imp__sub_826B0720);
+PPC_FUNC_IMPL(__imp__sub_826B0720) {}
 PPC_FUNC(sub_826B0720)
 {
     __imp__sub_826B0720(ctx, base);
 }
 
-PPC_FUNC_IMPL(__imp__sub_826B0830);
+PPC_FUNC_IMPL(__imp__sub_826B0830) {}
 PPC_FUNC(sub_826B0830)
 {
     __imp__sub_826B0830(ctx, base);
@@ -322,7 +322,7 @@ PPC_FUNC(sub_827FC738)
 
 // --- ppc_recomp.18.cpp loops ---
 
-PPC_FUNC_IMPL(__imp__sub_8238F700);
+PPC_FUNC_IMPL(__imp__sub_8238F700) {}
 PPC_FUNC(sub_8238F700)
 {
     __imp__sub_8238F700(ctx, base);

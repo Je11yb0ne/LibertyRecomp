@@ -1,6 +1,11 @@
-// Switch logger — uses nxlink stdout or svcOutputDebugString
+// Switch logger uses nxlink stdout or svcOutputDebugString.
 #include <os/logger.h>
-#include <switch.h>
+
+extern "C" {
+#include <switch/kernel/svc.h>
+#include <switch/types.h>
+}
+
 #include <cstdio>
 #include <string>
 

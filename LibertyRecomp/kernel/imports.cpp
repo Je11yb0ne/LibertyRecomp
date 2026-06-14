@@ -4,6 +4,9 @@
 #include <thread>
 #include <atomic>
 #include <stdafx.h>
+#ifndef LIBERTY_RECOMP_SWITCH
+#include <Xinput.h>
+#endif
 #include <cpu/ppc_context.h>
 #include <cpu/guest_thread.h>
 #include <apu/audio.h>
@@ -30,6 +33,20 @@
 #include "game_init.h"
 #include "io/net_socket.h"
 #include "io/net_session.h"
+
+using NTSTATUS = int32_t;
+
+#undef kStatusInvalidHandle
+#undef kStatusInvalidParameter
+#undef kStatusInfoLengthMismatch
+#undef kStatusEndOfFile
+#undef kStatusAccessDenied
+#undef kStatusObjectNameNotFound
+#undef kStatusObjectPathNotFound
+#undef kStatusObjectNameInvalid
+#undef kStatusObjectNameCollision
+#undef kStatusBufferOverflow
+#undef kStatusNoMoreFiles
 
 PPC_EXTERN_IMPORT(sub_8266A778);
 PPC_EXTERN_IMPORT(sub_82854448);
@@ -83,7 +100,7 @@ inline void KernelPhase_EnterRuntime() {
 #include <CommonCrypto/CommonCryptor.h>
 #endif
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(LIBERTY_RECOMP_SWITCH)
 #include <sys/mman.h>  // For mprotect
 #endif
 
@@ -270,17 +287,17 @@ static std::atomic<bool> g_inStorageInit{false};
 
 namespace
 {
-    constexpr uint32_t STATUS_INVALID_HANDLE = 0xC0000008;
-    constexpr uint32_t STATUS_INVALID_PARAMETER = 0xC000000D;
-    constexpr uint32_t STATUS_INFO_LENGTH_MISMATCH = 0xC0000004;
-    constexpr uint32_t STATUS_END_OF_FILE = 0xC0000011;
-    constexpr uint32_t STATUS_ACCESS_DENIED = 0xC0000022;
-    constexpr uint32_t STATUS_OBJECT_NAME_NOT_FOUND = 0xC0000034;
-    constexpr uint32_t STATUS_OBJECT_PATH_NOT_FOUND = 0xC000003A;
-    constexpr uint32_t STATUS_OBJECT_NAME_INVALID = 0xC0000033;
-    constexpr uint32_t STATUS_OBJECT_NAME_COLLISION = 0xC0000035;
-    constexpr uint32_t STATUS_BUFFER_OVERFLOW = 0x80000005;
-    constexpr uint32_t STATUS_NO_MORE_FILES = 0x80000006;
+    constexpr uint32_t kStatusInvalidHandle = 0xC0000008;
+    constexpr uint32_t kStatusInvalidParameter = 0xC000000D;
+    constexpr uint32_t kStatusInfoLengthMismatch = 0xC0000004;
+    constexpr uint32_t kStatusEndOfFile = 0xC0000011;
+    constexpr uint32_t kStatusAccessDenied = 0xC0000022;
+    constexpr uint32_t kStatusObjectNameNotFound = 0xC0000034;
+    constexpr uint32_t kStatusObjectPathNotFound = 0xC000003A;
+    constexpr uint32_t kStatusObjectNameInvalid = 0xC0000033;
+    constexpr uint32_t kStatusObjectNameCollision = 0xC0000035;
+    constexpr uint32_t kStatusBufferOverflow = 0x80000005;
+    constexpr uint32_t kStatusNoMoreFiles = 0x80000006;
 
     // FILE_INFORMATION_CLASS (subset)
     constexpr uint32_t FileBasicInformation = 4;
@@ -1166,11 +1183,11 @@ namespace
         switch (err)
         {
         case EACCES:
-            return STATUS_ACCESS_DENIED;
+            return kStatusAccessDenied;
         case ENOENT:
-            return STATUS_OBJECT_NAME_NOT_FOUND;
+            return kStatusObjectNameNotFound;
         case ENOTDIR:
-            return STATUS_OBJECT_PATH_NOT_FOUND;
+            return kStatusObjectPathNotFound;
         default:
             return STATUS_FAIL_CHECK;
         }
@@ -2036,11 +2053,11 @@ uint32_t NtOpenFile(
     (void)OpenOptions;
 
     if (!FileHandle || !Attributes)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     std::string guestPath;
     if (!TryGetAnsiPath(Attributes, guestPath))
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     // DesiredAccess on Xbox uses Win32-like GENERIC_READ/WRITE bits.
     std::ios::openmode mode = std::ios::binary;
@@ -2154,11 +2171,11 @@ uint32_t NtCreateFile
     (void)ShareAccess;
 
     if (!FileHandle || !Attributes)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     std::string guestPath;
     if (!TryGetAnsiPath(Attributes, guestPath))
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     // === PHASE 2: Storage Init File Tracing ===
     static int s_storageInitFileCount = 0;
@@ -2353,7 +2370,7 @@ uint32_t NtCreateFile
                 // =======================================================================
                 // SONIC UNLEASHED APPROACH: Bypass shader directory enumeration.
                 // All 1132 shaders are pre-compiled and embedded in g_shaderCacheEntries[].
-                // Return STATUS_OBJECT_NAME_NOT_FOUND to force use of embedded cache.
+                // Return kStatusObjectNameNotFound to force use of embedded cache.
                 // =======================================================================
                 if (pathLower.find("fxl_final") != std::string::npos ||
                     pathLower.find("shaders") != std::string::npos)
@@ -2367,10 +2384,10 @@ uint32_t NtCreateFile
                     // Return "not found" - forces game to use embedded shader cache
                     if (IoStatusBlock)
                     {
-                        IoStatusBlock->Status = STATUS_OBJECT_NAME_NOT_FOUND;
+                        IoStatusBlock->Status = kStatusObjectNameNotFound;
                         IoStatusBlock->Information = 0;
                     }
-                    return STATUS_OBJECT_NAME_NOT_FOUND;
+                    return kStatusObjectNameNotFound;
                 }
                 
                 // For non-shader paths, try extracted directory
@@ -2482,7 +2499,7 @@ uint32_t NtClose(uint32_t handle)
         {
             LOGF_WARNING("[NtClose] Ignored attempt to close invalid handle 0x{:08X}", handle);
         }
-        return 0xC0000008;  // STATUS_INVALID_HANDLE
+        return 0xC0000008;  // kStatusInvalidHandle
     }
 
     if (IsKernelObject(handle))
@@ -2690,19 +2707,19 @@ uint32_t NtWriteFile(
     if (FileHandle == GUEST_INVALID_HANDLE_VALUE || !IsKernelObject(FileHandle))
     {
         LOGF_IMPL(Utility, "NtWriteFile", "INVALID handle 0x{:08X}", FileHandle);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     auto it = g_ntFileHandles.find(FileHandle);
     if (it == g_ntFileHandles.end() || !it->second || it->second->magic != kNtFileHandleMagic)
     {
         LOGF_IMPL(Utility, "NtWriteFile", "Not a file handle 0x{:08X}", FileHandle);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     NtFileHandle* hFile = it->second;
     if (!Buffer)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     if (ByteOffset != nullptr)
     {
@@ -2813,10 +2830,6 @@ void NtQueryVirtualMemory()
     LOG_UTILITY("!!! STUB !!!");
 }
 
-#ifndef STATUS_INVALID_PARAMETER
-#define STATUS_INVALID_PARAMETER 0xC000000D
-#endif
-
 #ifndef STATUS_NO_MEMORY
 #define STATUS_NO_MEMORY 0xC0000017
 #endif
@@ -2896,23 +2909,23 @@ uint32_t RtlNtStatusToDosError(uint32_t Status)
         return ERROR_CALL_NOT_IMPLEMENTED;
     case uint32_t(STATUS_SEMAPHORE_LIMIT_EXCEEDED):
         return ERROR_TOO_MANY_POSTS;
-    case uint32_t(STATUS_OBJECT_NAME_NOT_FOUND):
+    case uint32_t(kStatusObjectNameNotFound):
         return ERROR_FILE_NOT_FOUND;
-    case uint32_t(STATUS_INVALID_PARAMETER):
+    case uint32_t(kStatusInvalidParameter):
         return ERROR_INVALID_PARAMETER;
-    case uint32_t(STATUS_INVALID_HANDLE):
+    case uint32_t(kStatusInvalidHandle):
         return ERROR_INVALID_HANDLE;
-    case uint32_t(STATUS_END_OF_FILE):
+    case uint32_t(kStatusEndOfFile):
         return ERROR_HANDLE_EOF;
-    case uint32_t(STATUS_NO_MORE_FILES):
+    case uint32_t(kStatusNoMoreFiles):
         return ERROR_NO_MORE_FILES;
-    case uint32_t(STATUS_ACCESS_DENIED):
+    case uint32_t(kStatusAccessDenied):
         return ERROR_ACCESS_DENIED;
-    case uint32_t(STATUS_OBJECT_NAME_INVALID):
+    case uint32_t(kStatusObjectNameInvalid):
         return ERROR_INVALID_NAME;
-    case uint32_t(STATUS_OBJECT_PATH_NOT_FOUND):
+    case uint32_t(kStatusObjectPathNotFound):
         return ERROR_PATH_NOT_FOUND;
-    case uint32_t(STATUS_OBJECT_NAME_COLLISION):
+    case uint32_t(kStatusObjectNameCollision):
         return ERROR_ALREADY_EXISTS;
     default:
         LOGF_WARNING("Unimplemented NtStatus translation: {:#08x}", Status);
@@ -2986,7 +2999,7 @@ uint32_t NtQueryInformationFile(
     uint32_t FileInformationClass)
 {
     if (FileHandle == GUEST_INVALID_HANDLE_VALUE || !IsKernelObject(FileHandle))
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
 
     std::filesystem::path path;
     NtFileHandle* hFile = nullptr;
@@ -3007,11 +3020,11 @@ uint32_t NtQueryInformationFile(
     }
     else
     {
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     if (!IoStatusBlock || !FileInformation)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     std::error_code ec;
     bool isDir = false;
@@ -3030,9 +3043,9 @@ uint32_t NtQueryInformationFile(
         const bool exists = std::filesystem::exists(path, ec);
         if (!exists || ec)
         {
-            IoStatusBlock->Status = STATUS_OBJECT_NAME_NOT_FOUND;
+            IoStatusBlock->Status = kStatusObjectNameNotFound;
             IoStatusBlock->Information = 0;
-            return STATUS_OBJECT_NAME_NOT_FOUND;
+            return kStatusObjectNameNotFound;
         }
 
         isDir = std::filesystem::is_directory(path, ec);
@@ -3060,7 +3073,7 @@ uint32_t NtQueryInformationFile(
     case FileBasicInformation:
     {
         if (Length < sizeof(XFILE_BASIC_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_BASIC_INFORMATION*>(FileInformation);
         info->CreationTime = 0;
@@ -3077,7 +3090,7 @@ uint32_t NtQueryInformationFile(
     case FileStandardInformation:
     {
         if (Length < sizeof(XFILE_STANDARD_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_STANDARD_INFORMATION*>(FileInformation);
         info->AllocationSize = static_cast<int64_t>(allocationSize);
@@ -3094,7 +3107,7 @@ uint32_t NtQueryInformationFile(
     case FilePositionInformation:
     {
         if (Length < sizeof(XFILE_POSITION_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_POSITION_INFORMATION*>(FileInformation);
         if (hFile)
@@ -3117,7 +3130,7 @@ uint32_t NtQueryInformationFile(
     case FileEndOfFileInformation:
     {
         if (Length < sizeof(XFILE_END_OF_FILE_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_END_OF_FILE_INFORMATION*>(FileInformation);
         info->EndOfFile = static_cast<int64_t>(fileSize);
@@ -3129,7 +3142,7 @@ uint32_t NtQueryInformationFile(
     case FileNetworkOpenInformation:
     {
         if (Length < sizeof(XFILE_NETWORK_OPEN_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_NETWORK_OPEN_INFORMATION*>(FileInformation);
         info->CreationTime = 0;
@@ -3191,7 +3204,7 @@ uint32_t NtQueryVolumeInformationFile(
     uint32_t FsInformationClass)
 {
     if (FileHandle == GUEST_INVALID_HANDLE_VALUE || !IsKernelObject(FileHandle))
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
 
     // Accept both file handles and directory handles for volume information.
     std::filesystem::path path;
@@ -3209,18 +3222,18 @@ uint32_t NtQueryVolumeInformationFile(
     }
     else
     {
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     if (!IoStatusBlock || !FsInformation)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     switch (FsInformationClass)
     {
     case FileFsDeviceInformation:
     {
         if (Length < sizeof(XFILE_FS_DEVICE_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_FS_DEVICE_INFORMATION*>(FsInformation);
         info->DeviceType = 0x00000007; // FILE_DEVICE_DISK
@@ -3233,7 +3246,7 @@ uint32_t NtQueryVolumeInformationFile(
     case FileFsSizeInformation:
     {
         if (Length < sizeof(XFILE_FS_SIZE_INFORMATION))
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_FS_SIZE_INFORMATION*>(FsInformation);
         // Very rough defaults: 512-byte sectors, 8 sectors per allocation unit (4KB).
@@ -3254,7 +3267,7 @@ uint32_t NtQueryVolumeInformationFile(
         constexpr uint32_t kFixedSize = sizeof(XFILE_FS_ATTRIBUTE_INFORMATION_FIXED);
 
         if (Length < kFixedSize)
-            return STATUS_INFO_LENGTH_MISMATCH;
+            return kStatusInfoLengthMismatch;
 
         auto* info = reinterpret_cast<XFILE_FS_ATTRIBUTE_INFORMATION_FIXED*>(FsInformation);
         info->FileSystemAttributes = 0;
@@ -3270,9 +3283,9 @@ uint32_t NtQueryVolumeInformationFile(
     }
     default:
         LOGF_WARNING("NtQueryVolumeInformationFile: unhandled class {}", FsInformationClass);
-        IoStatusBlock->Status = STATUS_INVALID_PARAMETER;
+        IoStatusBlock->Status = kStatusInvalidParameter;
         IoStatusBlock->Information = 0;
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
     }
 }
 
@@ -3293,7 +3306,7 @@ uint32_t NtQueryDirectoryFile(
     if (FileHandle == GUEST_INVALID_HANDLE_VALUE || !IsKernelObject(FileHandle))
     {
         LOG_IMPL(Utility, "NtQueryDirectoryFile", "INVALID_HANDLE_VALUE or not kernel object");
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     auto it = g_ntDirHandles.find(FileHandle);
@@ -3303,13 +3316,13 @@ uint32_t NtQueryDirectoryFile(
             FileHandle,
             it != g_ntDirHandles.end(), it != g_ntDirHandles.end() && it->second != nullptr,
             (it != g_ntDirHandles.end() && it->second) ? it->second->magic : 0);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
     LOGF_IMPL(Utility, "NtQueryDirectoryFile", "Dir path: '{}'", it->second->path.string());
 
     NtDirHandle* hDir = it->second;
     if (!IoStatusBlock || !FileInformation || Length == 0)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     if (RestartScan)
         hDir->cursor = 0;
@@ -3391,9 +3404,9 @@ uint32_t NtQueryDirectoryFile(
             fixedSize = sizeof(XFILE_BOTH_DIR_INFORMATION_FIXED);
             break;
         default:
-            IoStatusBlock->Status = STATUS_INVALID_PARAMETER;
+            IoStatusBlock->Status = kStatusInvalidParameter;
             IoStatusBlock->Information = 0;
-            return STATUS_INVALID_PARAMETER;
+            return kStatusInvalidParameter;
         }
 
         const uint32_t entrySizeUnaligned = fixedSize + nameBytes;
@@ -3403,9 +3416,9 @@ uint32_t NtQueryDirectoryFile(
         {
             if (written == 0)
             {
-                IoStatusBlock->Status = STATUS_BUFFER_OVERFLOW;
+                IoStatusBlock->Status = kStatusBufferOverflow;
                 IoStatusBlock->Information = 0;
-                return STATUS_BUFFER_OVERFLOW;
+                return kStatusBufferOverflow;
             }
             break;
         }
@@ -3494,9 +3507,9 @@ uint32_t NtQueryDirectoryFile(
 
     if (written == 0)
     {
-        IoStatusBlock->Status = STATUS_NO_MORE_FILES;
+        IoStatusBlock->Status = kStatusNoMoreFiles;
         IoStatusBlock->Information = 0;
-        return STATUS_NO_MORE_FILES;
+        return kStatusNoMoreFiles;
     }
 
     // Final entry in the buffer.
@@ -3567,18 +3580,18 @@ uint32_t NtReadFile(
         }
         // Return INVALID_HANDLE to signal the caller to give up
         if (IoStatusBlock) {
-            IoStatusBlock->Status = STATUS_INVALID_HANDLE;
+            IoStatusBlock->Status = kStatusInvalidHandle;
             IoStatusBlock->Information = 0;
         }
         // Add small delay to prevent tight CPU loop
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
     
     if (FileHandle == GUEST_INVALID_HANDLE_VALUE || !IsKernelObject(FileHandle))
     {
         LOGF_IMPL(Utility, "NtReadFile", "INVALID handle 0x{:08X}", FileHandle);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     // Virtual (in-memory) file handles (used to satisfy RPF mount header reads).
@@ -3587,14 +3600,14 @@ uint32_t NtReadFile(
     {
         NtVirtFileHandle* hVirt = vit->second;
         if (!IoStatusBlock || !Buffer)
-            return STATUS_INVALID_PARAMETER;
+            return kStatusInvalidParameter;
 
         const uint64_t offset = ByteOffset ? static_cast<uint64_t>(ByteOffset->get()) : 0ull;
         if (offset >= hVirt->data.size())
         {
-            IoStatusBlock->Status = STATUS_END_OF_FILE;
+            IoStatusBlock->Status = kStatusEndOfFile;
             IoStatusBlock->Information = 0;
-            return STATUS_END_OF_FILE;
+            return kStatusEndOfFile;
         }
 
         const uint32_t available = static_cast<uint32_t>(hVirt->data.size() - offset);
@@ -3612,22 +3625,22 @@ uint32_t NtReadFile(
     {
         if (IoStatusBlock)
         {
-            IoStatusBlock->Status = STATUS_INVALID_PARAMETER;
+            IoStatusBlock->Status = kStatusInvalidParameter;
             IoStatusBlock->Information = 0;
         }
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
     }
 
     auto it = g_ntFileHandles.find(FileHandle);
     if (it == g_ntFileHandles.end() || !it->second || it->second->magic != kNtFileHandleMagic)
     {
         LOGF_IMPL(Utility, "NtReadFile", "Not a file handle 0x{:08X}", FileHandle);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
 
     NtFileHandle* hFile = it->second;
     if (!IoStatusBlock || !Buffer)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     // Parse RPF header on first access so we can detect encrypted TOC ranges.
     if (!hFile->rpfHeaderParsed)
@@ -3666,10 +3679,10 @@ uint32_t NtReadFile(
 
     if (bytesRead == 0 && Length != 0 && hFile->stream.eof())
     {
-        IoStatusBlock->Status = STATUS_END_OF_FILE;
+        IoStatusBlock->Status = kStatusEndOfFile;
         IoStatusBlock->Information = 0;
         signalCompletionEvent();
-        return STATUS_END_OF_FILE;
+        return kStatusEndOfFile;
     }
 
     // If this is an RPF file with encrypted TOC, decrypt any portion we returned that overlaps the TOC.
@@ -3726,7 +3739,7 @@ uint32_t NtDuplicateObject(uint32_t SourceHandle, be<uint32_t>* TargetHandle, ui
         {
             LOGF_WARNING("[NtDuplicateObject] Unrecognized handle 0x{:08X} (occurrence #{})", SourceHandle, s_unknownDupCount);
         }
-        return 0xC0000008;  // STATUS_INVALID_HANDLE
+        return 0xC0000008;  // kStatusInvalidHandle
     }
 }
 
@@ -3747,11 +3760,11 @@ uint32_t NtAllocateVirtualMemory(
     (void)ZeroBits;
 
     if (!BaseAddress || !RegionSize)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     uint32_t size = RegionSize->get();
     if (size == 0)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     // Round up to page size. X360 is page-based, callers often expect at least 4KB granularity.
     constexpr uint32_t kPageSize = 0x1000;
@@ -3763,7 +3776,7 @@ uint32_t NtAllocateVirtualMemory(
         // We currently don't manage fixed-address reservations/commits.
         // The full guest address space is already mapped, so accept the request if it is in-range.
         if (requested >= PPC_MEMORY_SIZE)
-            return STATUS_INVALID_PARAMETER;
+            return kStatusInvalidParameter;
 
         *RegionSize = size;
         return STATUS_SUCCESS;
@@ -3790,7 +3803,7 @@ uint32_t NtFreeVirtualMemory(
     (void)FreeType;
 
     if (!BaseAddress)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     const uint32_t addr = BaseAddress->get();
     if (addr == 0)
@@ -5058,18 +5071,18 @@ void RtlCaptureContext_x()
 uint32_t NtQueryFullAttributesFile(XOBJECT_ATTRIBUTES* ObjectAttributes, XFILE_NETWORK_OPEN_INFORMATION* FileInformation)
 {
     if (!ObjectAttributes || !FileInformation)
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     std::string guestPath;
     if (!TryGetAnsiPath(ObjectAttributes, guestPath))
-        return STATUS_INVALID_PARAMETER;
+        return kStatusInvalidParameter;
 
     const std::filesystem::path resolved = ResolveGuestPathBestEffort(guestPath);
 
     std::error_code ec;
     const bool exists = std::filesystem::exists(resolved, ec);
     if (!exists || ec)
-        return STATUS_OBJECT_NAME_NOT_FOUND;
+        return kStatusObjectNameNotFound;
 
     const bool isDir = std::filesystem::is_directory(resolved, ec);
     if (ec)
@@ -5181,14 +5194,14 @@ uint32_t NtReleaseSemaphore(uint32_t Handle, uint32_t ReleaseCount, int32_t* Pre
         {
             LOGF_WARNING("[NtReleaseSemaphore] #{} Invalid handle 0x{:08X}", s_count, Handle);
         }
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
     
     KernelObject* obj = GetKernelObject(Handle);
     if (!obj)
     {
         LOGF_WARNING("[NtReleaseSemaphore] #{} Null kernel object for handle 0x{:08X}", s_count, Handle);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
     
     // Check if this is actually a semaphore
@@ -5208,7 +5221,7 @@ uint32_t NtReleaseSemaphore(uint32_t Handle, uint32_t ReleaseCount, int32_t* Pre
         }
         
         LOGF_WARNING("[NtReleaseSemaphore] #{} handle=0x{:08X} is not a semaphore or event", s_count, Handle);
-        return STATUS_INVALID_HANDLE;  // Object type mismatch
+        return kStatusInvalidHandle;  // Object type mismatch
     }
     
     // Always log releases for blocking semaphores, otherwise limit logging
@@ -5620,7 +5633,7 @@ uint32_t KeReleaseSemaphore(XKSEMAPHORE* semaphore, uint32_t increment, uint32_t
     auto* object = QueryKernelObject<Semaphore>(semaphore->Header);
     if (!object) {
         LOGF_WARNING("[KeReleaseSemaphore] #{} sem=0x{:08X} QueryKernelObject returned NULL!", s_count, semAddr);
-        return STATUS_INVALID_HANDLE;
+        return kStatusInvalidHandle;
     }
     object->Release(adjustment, nullptr);
     return STATUS_SUCCESS;
@@ -6148,7 +6161,7 @@ PPC_FUNC(sub_827DAE40)
 // Hook sub_829A2380 - Semaphore acquire (routes through sync table)
 // This function acquires a semaphore - route through sync table for proper tracking
 // REMOVED: extern "C" void sub_829A2380(PPCContext& ctx, uint8_t* base); // v1 addr
-{
+PPC_FUNC(sub_829A2380) {
     static int s_count = 0; ++s_count;
     uint32_t handle = ctx.r3.u32;
     uint32_t callerLR = (uint32_t)ctx.lr;
@@ -6173,7 +6186,7 @@ PPC_FUNC(sub_827DAE40)
 
 // Hook sub_829A21F8 - Semaphore create wrapper (routes through sync table)
 // REMOVED: extern "C" void sub_829A21F8(PPCContext& ctx, uint8_t* base); // v1 addr
-{
+PPC_FUNC(sub_829A21F8) {
     static int s_count = 0; ++s_count;
     uint32_t callerLR = (uint32_t)ctx.lr;
     
@@ -6198,7 +6211,7 @@ PPC_FUNC(sub_827DAE40)
 // This is called by sub_829A2380 (semaphore acquire) during init
 // The semaphore isn't released during init, so we make this non-blocking
 // REMOVED: extern "C" void sub_829A9738(PPCContext& ctx, uint8_t* base); // v1 addr
-{
+PPC_FUNC(sub_829A9738) {
     static int s_count = 0;
     ++s_count;
     
@@ -6212,7 +6225,7 @@ PPC_FUNC(sub_827DAE40)
     }
     
     // NON-BLOCKING: Return success immediately
-    // The semaphore release (sub_827DAD60 â†’ sub_829A2290) doesn't happen during init
+    // The semaphore release (sub_827DAD60 â†?sub_829A2290) doesn't happen during init
     // so this wait would block forever. Return 0 (success) to allow init to continue.
     ctx.r3.u32 = 0;  // STATUS_SUCCESS / ERROR_SUCCESS
 }
@@ -6232,7 +6245,7 @@ PPC_FUNC(sub_827DAE40)
 //   sub_829A7EA8  - Init table executor (function pointer array)
 //   sub_829A7DC8  - C++ static constructors (multiple arrays)
 //   sub_829A27D8  - Command-line parsing setup
-//   sub_8218BEA8  - Game main entry â†’ sub_827D89B8 (game wrapper)
+//   sub_8218BEA8  - Game main entry â†?sub_827D89B8 (game wrapper)
 //
 // This unified replacement:
 // - SKIPS all Xbox-specific hardware/security checks
@@ -6663,7 +6676,7 @@ static int BuildGuestCommandLine(uint8_t* base, const std::vector<std::string>& 
 // essential game code functions.
 //
 // Replaced functions (Xbox-specific):
-//   sub_829A7FF8 â†’ sub_829A7F20  - XEX validation, HalReturnToFirmware
+//   sub_829A7FF8 â†?sub_829A7F20  - XEX validation, HalReturnToFirmware
 //   sub_829A7960                  - Runtime callback invocation
 //   sub_829A0678                  - HDCP/privilege check
 //   sub_82994700                  - CRT/TLS init (modernized, not skipped)
@@ -6672,7 +6685,7 @@ static int BuildGuestCommandLine(uint8_t* base, const std::vector<std::string>& 
 // Preserved functions (game code):
 //   sub_829A7EA8                  - Init table executor
 //   sub_829A7DC8                  - C++ static constructors
-//   sub_8218BEA8 â†’ sub_827D89B8  - Game main entry
+//   sub_8218BEA8 â†?sub_827D89B8  - Game main entry
 // =============================================================================
 
 // =============================================================================
@@ -6695,7 +6708,7 @@ PPC_FUNC(_xstart_DISABLED)
     // =========================================================================
     // PHASE 1: SKIP Xbox-specific early init
     // =========================================================================
-    // sub_829A7FF8 â†’ sub_829A7F20: XEX header validation
+    // sub_829A7FF8 â†?sub_829A7F20: XEX header validation
     //   - Checks RtlImageXexHeaderField for field 0x20001025
     //   - On failure: allocates 1MB via sub_829A5F10, calls HalReturnToFirmware
     //   - Not needed: We're not running from an XEX
@@ -6849,7 +6862,7 @@ PPC_FUNC(_xstart_DISABLED)
     // =========================================================================
     // PHASE 7: Enter game main (KEEP - game code)
     // =========================================================================
-    // sub_8218BEA8 â†’ sub_827D89B8: Game main entry
+    // sub_8218BEA8 â†?sub_827D89B8: Game main entry
     //   - sub_827D89B8 performs:
     //     * sub_827D8840 - pre-init setup
     //     * sub_827FFF80 - network init
@@ -6891,7 +6904,7 @@ PPC_FUNC(_xstart_DISABLED)
 
 // =============================================================================
 // INITIALIZATION FLOW TRACING
-// Call chain: sub_827D89B8 â†’ sub_8218BEB0 â†’ sub_82120000 â†’ sub_8218C600
+// Call chain: sub_827D89B8 â†?sub_8218BEB0 â†?sub_82120000 â†?sub_8218C600
 // sub_8218C600 is ONE-TIME initialization - if it returns 0, game fails to init
 // =============================================================================
 extern "C" void sub_8218C600(PPCContext& ctx, uint8_t* base);
@@ -7851,6 +7864,7 @@ PPC_FUNC(sub_827DAF50) {
     LOGF_WARNING("[THREAD_CREATE] sub_827DAF50 #{} EXIT threadHandle=0x{:08X}", s_count, ctx.r3.u32);
 }
 
+PPC_FUNC(sub_827DACD8) {
     static int s_count = 0; ++s_count;
     uint32_t semHandle = ctx.r3.u32;
     uint32_t callerLR = (uint32_t)ctx.lr;
@@ -8348,6 +8362,8 @@ static bool RegisterDynamicFunction(uint32_t guestAddr, PPCFunc* hostFunc) {
     g_memory.InsertFunction(guestAddr, hostFunc);
     
     VirtualProtect(g_memory.base + protectBegin, protectEnd - protectBegin, PAGE_READONLY, &oldProtect);
+#elif defined(LIBERTY_RECOMP_SWITCH)
+    g_memory.InsertFunction(guestAddr, hostFunc);
 #else
     // Unix: use mprotect
     if (mprotect(g_memory.base + protectBegin, protectEnd - protectBegin, PROT_READ | PROT_WRITE) != 0) {
@@ -9757,7 +9773,7 @@ PPC_FUNC(sub_827E8180) {
     // This eliminates the infinite loop caused by:
     //   1. FileStream at 0x82A14100 created
     //   2. sub_82192840 rejects it (address range check)
-    //   3. Game retries â†’ infinite loop
+    //   3. Game retries â†?infinite loop
     // ==========================================================================
     if (isShaderPath) {
         printf("[sub_827E8180] #%d -> SHADER BYPASS: '%s' - using embedded cache\n", s_count, pathBuf);
@@ -10205,7 +10221,7 @@ PPC_FUNC(sub_827DAD60) {
 // Worker pattern:
 //   1. Signal sem2 (ctx+40) - tells creator "I'm running"
 //   2. Wait on sem1 (ctx+36) - wait for work (BLOCKS forever - sem1 never signaled)
-//   3. Call vtable[3] (ctx+0 â†’ vtable â†’ offset 12) - audio processing
+//   3. Call vtable[3] (ctx+0 â†?vtable â†?offset 12) - audio processing
 //   4. Loop back to step 2
 //
 // FIX: Signal sem2, call vtable[3] once for audio, then return (no blocking)
@@ -11228,6 +11244,7 @@ PPC_FUNC(sub_8226CB50) {
 // REMOVED: extern "C" void sub_82300C78(PPCContext& ctx, uint8_t* base); // v1 addr
 
 // Hook sub_82300C78 - Call original to trace blocking point
+PPC_FUNC(sub_82300C78) {
     static int s_count = 0; ++s_count;
     printf("[sub_82300C78] #%d ENTER r3=0x%08X - calling original with tracing\n", s_count, ctx.r3.u32); fflush(stdout);
     
@@ -11256,9 +11273,10 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 // REMOVED: extern "C" void sub_829A3238(PPCContext& ctx, uint8_t* base);  // Sync wait (KeWaitForSingleObject) // v1 addr
 
 // Hook sub_829A3238 - SYNC WAIT FUNCTION (KeWaitForSingleObject)
-// Blocking path: sub_82300C78 â†’ sub_827DB988 â†’ sub_829A39F0 â†’ sub_829A3238 â†’ KeWaitForSingleObject
+// Blocking path: sub_82300C78 â†?sub_827DB988 â†?sub_829A39F0 â†?sub_829A3238 â†?KeWaitForSingleObject
 // This function enters critical section, sets event, WAITS on event at 0x82A97F5C, resets event, leaves critical section
 // Fix: Pre-signal the event so the wait returns immediately
+PPC_FUNC(sub_829A3238) {
     static int s_count = 0; ++s_count;
     
     printf("[SYNC] sub_829A3238 #%d ENTER - pre-signaling sync event\n", s_count);
@@ -11297,10 +11315,11 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 }
 
 // Hook sub_829A39F0 - INTERMEDIATE SYNC FUNCTION
-// Blocking path: sub_827DB988 â†’ sub_829A39F0 â†’ sub_829A3238 â†’ KeWaitForSingleObject
+// Blocking path: sub_827DB988 â†?sub_829A39F0 â†?sub_829A3238 â†?KeWaitForSingleObject
 // This function is called by sub_827DB988 and calls sub_829A3238 directly
 // We pre-signal the event that sub_829A3238 will wait on
 // REMOVED: extern "C" void sub_829A39F0(PPCContext& ctx, uint8_t* base); // v1 addr
+PPC_FUNC(sub_829A39F0) {
     static int s_count = 0; ++s_count;
     
     printf("[SYNC] sub_829A39F0 #%d ENTER - pre-signaling sync event for sub_829A3238\n", s_count);
@@ -11340,6 +11359,7 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 // Hook sub_829A3560 - TASK + MOUNT INTEGRATION
 // This function calls XamTaskSchedule, then computes event addr 0x82A97F5C, then KeWaitForSingleObject
 // The event must be signaled BEFORE the wait. We pre-signal it so the wait returns immediately.
+PPC_FUNC(sub_829A3560) {
     static int s_count = 0; ++s_count;
     
     printf("[SYNC] sub_829A3560 #%d ENTER - pre-signaling completion event\n", s_count);
@@ -11375,6 +11395,7 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 // This is called by sub_827DB338 and is the actual blocking point
 // Original: Calls sub_829A3560 (XamTaskSchedule) and waits on completion
 // Fix: Call the task scheduling but return success immediately without blocking
+PPC_FUNC(sub_829A39A0) {
     static int s_count = 0; ++s_count;
     
     // r3 = flags, r4 = size/type (8192), r5 = context (0)
@@ -11404,6 +11425,7 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 // This calls sub_829A39A0 and then does file lookup operations
 // Original: Blocks waiting for async completion
 // Fix: Execute the pre-wait setup, skip blocking, return success
+PPC_FUNC(sub_827DB338) {
     static int s_count = 0; ++s_count;
     
     // r3 = mode (0 or 1), r4 = output ptr 1, r5 = output ptr 2
@@ -11429,9 +11451,10 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 }
 
 // Hook sub_827DB988 - SYNC INIT
-// Blocking path: sub_827DB988 â†’ sub_829A39F0 â†’ sub_829A3238 â†’ KeWaitForSingleObject
+// Blocking path: sub_827DB988 â†?sub_829A39F0 â†?sub_829A3238 â†?KeWaitForSingleObject
 // Direct PPC calls bypass PPCFuncMappings patches, so we pre-signal the event HERE
 // before calling the original, so the wait in sub_829A3238 returns immediately
+PPC_FUNC(sub_827DB988) {
     static int s_count = 0; ++s_count;
     
     printf("[SYNC] sub_827DB988 #%d ENTER - pre-signaling event for sub_829A3238\n", s_count);
@@ -12468,7 +12491,7 @@ PPC_FUNC(sub_82192980) {
 // =============================================================================
 // Prevents crash when called with NULL stream from failed file open.
 // The crash occurs in sub_827E87A0 which dereferences the stream pointer.
-// Flow: sub_82192840 returns 0 â†’ sub_821928D0 returns 0 â†’ sub_82192A60(0) â†’ CRASH
+// Flow: sub_82192840 returns 0 â†?sub_821928D0 returns 0 â†?sub_82192A60(0) â†?CRASH
 // =============================================================================
 extern "C" void sub_82192A60(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82192A60) {
@@ -12526,8 +12549,8 @@ PPC_FUNC(sub_82192A60) {
 // =============================================================================
 // Prevents crash when called with NULL or invalid structure pointer.
 // The crash occurs at line 39351: ctx.r11.u64 = PPC_LOAD_U32(ctx.r31.u32 + 3076);
-// When r31 (from r3 parameter) is NULL, this reads from address 0x0C04 â†’ crash.
-// Call chain: sub_8289DDB0 â†’ sub_827E0968 â†’ sub_827E02F0(NULL) â†’ CRASH
+// When r31 (from r3 parameter) is NULL, this reads from address 0x0C04 â†?crash.
+// Call chain: sub_8289DDB0 â†?sub_827E0968 â†?sub_827E02F0(NULL) â†?CRASH
 // =============================================================================
 extern "C" void sub_827E02F0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827E02F0) {
@@ -12859,10 +12882,10 @@ GUEST_FUNCTION_HOOK(__imp__XamEnumerate, XamEnumerate);
 GUEST_FUNCTION_HOOK(__imp__XamNotifyCreateListener, XamNotifyCreateListener);
 GUEST_FUNCTION_HOOK(__imp__XamUserGetSigninInfo, XamUserGetSigninInfo);
 GUEST_FUNCTION_HOOK(__imp__XamShowSigninUI, XamShowSigninUI);
-GUEST_FUNCTION_HOOK(__imp__XamShowDeviceSelectorUI, XamShowDeviceSelectorUI);
+GUEST_FUNCTION_HOOK_C(__imp__XamShowDeviceSelectorUI, XamShowDeviceSelectorUI);
 GUEST_FUNCTION_HOOK(__imp__XamShowMessageBoxUI, XamShowMessageBoxUI);
 GUEST_FUNCTION_HOOK(__imp__XamUserCreateAchievementEnumerator, XamUserCreateAchievementEnumerator);
-GUEST_FUNCTION_HOOK(__imp__XeKeysConsoleSignatureVerification, XeKeysConsoleSignatureVerification);
+GUEST_FUNCTION_HOOK_C(__imp__XeKeysConsoleSignatureVerification, XeKeysConsoleSignatureVerification);
 GUEST_FUNCTION_HOOK(__imp__XamGetPrivateEnumStructureFromHandle, XamGetPrivateEnumStructureFromHandle);
 GUEST_FUNCTION_HOOK(__imp__XamTaskSchedule, XamTaskSchedule);
 GUEST_FUNCTION_HOOK(__imp__XamTaskShouldExit, XamTaskShouldExit);
@@ -12877,16 +12900,16 @@ GUEST_FUNCTION_HOOK(__imp__XamVoiceCreate, XamVoiceCreate);
 GUEST_FUNCTION_HOOK(__imp__XamVoiceClose, XamVoiceClose);
 GUEST_FUNCTION_HOOK(__imp__XamVoiceHeadsetPresent, XamVoiceHeadsetPresent);
 GUEST_FUNCTION_HOOK(__imp__XamVoiceSubmitPacket, XamVoiceSubmitPacket);
-GUEST_FUNCTION_HOOK(__imp__XeKeysConsolePrivateKeySign, XeKeysConsolePrivateKeySign);
+GUEST_FUNCTION_HOOK_C(__imp__XeKeysConsolePrivateKeySign, XeKeysConsolePrivateKeySign);
 GUEST_FUNCTION_HOOK(__imp__IoDismountVolumeByFileHandle, IoDismountVolumeByFileHandle);
 GUEST_FUNCTION_HOOK(__imp__NetDll_XNetGetEthernetLinkStatus, Net::XNetGetEthernetLinkStatus);
 GUEST_FUNCTION_HOOK(__imp__KeTryToAcquireSpinLockAtRaisedIrql, KeTryToAcquireSpinLockAtRaisedIrql);
-GUEST_FUNCTION_HOOK(__imp__XamShowGamerCardUIForXUID, XamShowGamerCardUIForXUID);
-GUEST_FUNCTION_HOOK(__imp__XamShowPlayerReviewUI, XamShowPlayerReviewUI);
-GUEST_FUNCTION_HOOK(__imp__XamShowDirtyDiscErrorUI, XamShowDirtyDiscErrorUI);
+GUEST_FUNCTION_HOOK_C(__imp__XamShowGamerCardUIForXUID, XamShowGamerCardUIForXUID);
+GUEST_FUNCTION_HOOK_C(__imp__XamShowPlayerReviewUI, XamShowPlayerReviewUI);
+GUEST_FUNCTION_HOOK_C(__imp__XamShowDirtyDiscErrorUI, XamShowDirtyDiscErrorUI);
 GUEST_FUNCTION_HOOK(__imp__XamEnableInactivityProcessing, XamEnableInactivityProcessing);
 GUEST_FUNCTION_HOOK(__imp__XamResetInactivity, XamResetInactivity);
-GUEST_FUNCTION_HOOK(__imp__XamShowMessageBoxUIEx, XamShowMessageBoxUIEx);
+GUEST_FUNCTION_HOOK_C(__imp__XamShowMessageBoxUIEx, XamShowMessageBoxUIEx);
 GUEST_FUNCTION_HOOK(__imp__XGetLanguage, XGetLanguage);
 GUEST_FUNCTION_HOOK(__imp__XGetAVPack, XGetAVPack);
 GUEST_FUNCTION_HOOK(__imp__XamLoaderTerminateTitle, XamLoaderTerminateTitle);
@@ -13012,7 +13035,7 @@ GUEST_FUNCTION_HOOK(__imp__RtlInitializeCriticalSectionAndSpinCount, RtlInitiali
 GUEST_FUNCTION_HOOK(__imp__XeCryptBnQwBeSigVerify, XeCryptBnQwBeSigVerify);
 GUEST_FUNCTION_HOOK(__imp__XeKeysGetKey, XeKeysGetKey);
 GUEST_FUNCTION_HOOK(__imp__XeCryptRotSumSha, XeCryptRotSumSha);
-GUEST_FUNCTION_HOOK(__imp__XeCryptSha, XeCryptSha);
+GUEST_FUNCTION_HOOK_C(__imp__XeCryptSha, XeCryptSha);
 GUEST_FUNCTION_HOOK(__imp__KeEnableFpuExceptions, KeEnableFpuExceptions);
 GUEST_FUNCTION_HOOK(__imp__RtlUnwind, RtlUnwind_x);
 GUEST_FUNCTION_HOOK(__imp__RtlCaptureContext, RtlCaptureContext_x);

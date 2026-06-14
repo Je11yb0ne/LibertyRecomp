@@ -67,6 +67,13 @@ if(NOT APPLE)
     list(APPEND REXKERNEL_SOURCES xboxkrnl/xboxkrnl_audio_xma.cpp)
 endif()
 
+if(REXGLUE_CODEGEN_ONLY)
+    list(REMOVE_ITEM REXKERNEL_SOURCES
+        xam/xam_ui.cpp
+        xboxkrnl/xboxkrnl_crypt.cpp
+    )
+endif()
+
 add_library(rexkernel STATIC ${REXKERNEL_SOURCES})
 add_library(rex::kernel ALIAS rexkernel)
 
@@ -82,9 +89,14 @@ target_link_libraries(rexkernel
     PUBLIC
         rexsystem
     PRIVATE
-        rexgraphics
-        rexinput
-        $<$<NOT:$<BOOL:${APPLE}>>:rexaudio>
         $<$<TARGET_EXISTS:o1heap>:o1heap>
 )
 
+if(NOT REXGLUE_CODEGEN_ONLY)
+    target_link_libraries(rexkernel
+        PRIVATE
+            rexgraphics
+            rexinput
+            $<$<NOT:$<BOOL:${APPLE}>>:rexaudio>
+    )
+endif()

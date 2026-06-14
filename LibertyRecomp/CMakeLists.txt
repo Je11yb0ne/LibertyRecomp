@@ -8,6 +8,17 @@ if (APPLE)
     option(LIBERTY_RECOMP_METAL "Add Metal support for rendering" ON)
 endif()
 
+if (LIBERTY_RECOMP_SWITCH)
+    option(LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT "Enable the Switch sparse guest-memory audit backend." OFF)
+    option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP "Stop the Switch audit build after guest-memory mapping." OFF)
+    set(LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE "0x4000000"
+        CACHE STRING "Low guest-memory window size for the Switch sparse memory audit.")
+    set(LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE "0x2000000"
+        CACHE STRING "Physical guest heap window size for the Switch sparse memory audit.")
+    set(LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE ""
+        CACHE STRING "Optional image/function-table window size override for the Switch sparse memory audit.")
+endif()
+
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     option(LIBERTY_RECOMP_FLATPAK "Configure the build for Flatpak compatibility." OFF)
 endif()
@@ -58,8 +69,10 @@ add_compile_options(
 
 if (WIN32)
     add_compile_options(/fp:strict)
-else()
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-ffp-model=strict)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(-frounding-math -fsignaling-nans)
 endif()
 
 add_compile_definitions(
@@ -86,18 +99,36 @@ set(LIBERTY_RECOMP_KERNEL_CXX_SOURCES
     "kernel/io/gta_file_system.cpp"
     "kernel/io/net_socket.cpp"
     "kernel/io/net_session.cpp"
+    "kernel/io/session_tracker.cpp"
+    "kernel/io/session_tracker_community.cpp"
+    "kernel/io/session_tracker_firebase.cpp"
+    "kernel/io/session_tracker_lan.cpp"
     "kernel/io/p2p_manager.cpp"
     "kernel/io/signaling_client.cpp"
     "kernel/game_init.cpp"
     "kernel/sync_table.cpp"
 )
 
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_KERNEL_CXX_SOURCES "kernel/io/p2p_manager_switch_stub.cpp")
+endif()
+
 set(LIBERTY_RECOMP_LOCALE_CXX_SOURCES
     "locale/config_locale.cpp"
     "locale/locale.cpp"
 )
 
-if (WIN32)
+if (LIBERTY_RECOMP_SWITCH)
+    set(LIBERTY_RECOMP_OS_CXX_SOURCES
+        "os/switch/logger_switch.cpp"
+        "os/switch/media_switch.cpp"
+        "os/switch/process_switch.cpp"
+        "os/switch/user_switch.cpp"
+        "os/switch/version_switch.cpp"
+        "os/switch/audit_diagnostics_switch.cpp"
+    )
+    set_source_files_properties("os/switch/audit_diagnostics_switch.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+elseif (WIN32)
     set(LIBERTY_RECOMP_OS_CXX_SOURCES
         "os/win32/logger_win32.cpp"
         "os/win32/media_win32.cpp"
@@ -130,16 +161,24 @@ set(LIBERTY_RECOMP_CPU_CXX_SOURCES
 set(LIBERTY_RECOMP_GPU_CXX_SOURCES
     "gpu/video.cpp"
     "gpu/imgui/imgui_common.cpp"
-    "gpu/imgui/imgui_font_builder.cpp"
     "gpu/imgui/imgui_snapshot.cpp"
 )
 
+if (NOT LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_GPU_CXX_SOURCES "gpu/imgui/imgui_font_builder.cpp")
+endif()
+
 set(LIBERTY_RECOMP_APU_CXX_SOURCES
     "apu/audio.cpp"
-    "apu/xma_decoder.cpp"
     "apu/embedded_player.cpp"
     "apu/driver/sdl2_driver.cpp"
 )
+
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_APU_CXX_SOURCES "apu/xma_decoder_switch_stub.cpp")
+else()
+    list(APPEND LIBERTY_RECOMP_APU_CXX_SOURCES "apu/xma_decoder.cpp")
+endif()
 
 set(LIBERTY_RECOMP_HID_CXX_SOURCES
     "hid/hid.cpp"
@@ -155,7 +194,7 @@ set(LIBERTY_RECOMP_PATCHES_CXX_SOURCES
     "patches/audio_patches.cpp"       # GTA IV audio system (updated for RAGE)
     "patches/memcpy_patches.cpp"  # Native memcpy implementation to fix broken recompiled control flow
     "patches/player_limit_patches.cpp"  # Extended multiplayer - raise player limit from 16 to 32+
-    
+
     # Generic/stub patches needed for compilation
     # "patches/aspect_ratio_patches.cpp"  # Has Sonicteam references - replaced by gta4_aspect_ratio_patches.cpp
     # "patches/camera_patches.cpp"         # Has Sonicteam references - needs GTA IV version
@@ -182,30 +221,43 @@ set(LIBERTY_RECOMP_UI_CXX_SOURCES
     "ui/fader.cpp"
     "ui/game_window.cpp"
     "ui/imgui_utils.cpp"
-    "ui/installer_wizard.cpp"
     "ui/message_window_stub.cpp"   # Stub - GTA IV version needed
     "ui/network_status_overlay.cpp"
     "ui/options_menu_stub.cpp"     # Stub - GTA IV version needed
 )
 
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_UI_CXX_SOURCES "ui/installer_wizard_switch_stub.cpp")
+else()
+    list(APPEND LIBERTY_RECOMP_UI_CXX_SOURCES "ui/installer_wizard.cpp")
+endif()
+
 set(LIBERTY_RECOMP_INSTALL_CXX_SOURCES
-    "install/installer.cpp"
-    "install/iso_file_system.cpp"
-    "install/iso_extractor.cpp"
     "install/platform_paths.cpp"
-    "install/rpf_extractor.cpp"
-    "install/shader_converter.cpp"
-    "install/thread_pool.cpp"
     "install/update_checker.cpp"
-    "install/xcontent_file_system.cpp"
-    "install/xbox360/stfs_parser.cpp"
-    "install/xbox360/xex_patcher.cpp"
-    "install/xbox360/title_update_manager.cpp"
-    "install/hashes/game.cpp"
-    "install/hashes/dlc_tlad.cpp"
-    "install/hashes/dlc_tbogt.cpp"
-    "install/hashes/title_update.cpp"
 )
+
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_INSTALL_CXX_SOURCES
+        "install/embedded_assets.cpp"
+        "install/installer_switch_stub.cpp")
+else()
+    list(APPEND LIBERTY_RECOMP_INSTALL_CXX_SOURCES
+        "install/installer.cpp"
+        "install/iso_file_system.cpp"
+        "install/iso_extractor.cpp"
+        "install/rpf_extractor.cpp"
+        "install/shader_converter.cpp"
+        "install/thread_pool.cpp"
+        "install/xcontent_file_system.cpp"
+        "install/xbox360/stfs_parser.cpp"
+        "install/xbox360/xex_patcher.cpp"
+        "install/xbox360/title_update_manager.cpp"
+        "install/hashes/game.cpp"
+        "install/hashes/dlc_tlad.cpp"
+        "install/hashes/dlc_tbogt.cpp"
+        "install/hashes/title_update.cpp")
+endif()
 
 set(LIBERTY_RECOMP_USER_CXX_SOURCES
     "user/achievement_data.cpp"
@@ -224,6 +276,16 @@ set(LIBERTY_RECOMP_UTILS_CXX_SOURCES
     "utils/bit_stream.cpp"
     "utils/ring_buffer.cpp"
 )
+
+if (LIBERTY_RECOMP_SWITCH)
+    list(APPEND LIBERTY_RECOMP_UTILS_CXX_SOURCES
+        "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/XenonUtils/image.cpp"
+        "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/XenonUtils/xex.cpp"
+        "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/XenonUtils/xdbf_wrapper.cpp"
+        "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty/tiny-AES-c/aes.c"
+    )
+    set_source_files_properties("${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty/tiny-AES-c/aes.c" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+endif()
 
 set(LIBERTY_RECOMP_THIRDPARTY_SOURCES
     "${LIBERTY_RECOMP_THIRDPARTY_ROOT}/imgui/backends/imgui_impl_sdl2.cpp"
@@ -250,6 +312,7 @@ set(LIBERTY_RECOMP_THIRDPARTY_INCLUDES
     "${LIBERTY_RECOMP_THIRDPARTY_ROOT}/GameNetworkingSockets/include"
     "${LIBERTY_RECOMP_TOOLS_ROOT}/bc_diff"
     "${LIBERTY_RECOMP_TOOLS_ROOT}/XenosRecomp/thirdparty/smol-v/source"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenosRecomp/thirdparty/zstd/lib"
 )
 
 set_source_files_properties(${LIBERTY_RECOMP_THIRDPARTY_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -263,7 +326,7 @@ set(LIBERTY_RECOMP_CXX_SOURCES
     "sdl_listener.cpp"
     "stdafx.cpp"
     "version.cpp"
-    
+
     ${LIBERTY_RECOMP_KERNEL_CXX_SOURCES}
     ${LIBERTY_RECOMP_LOCALE_CXX_SOURCES}
     ${LIBERTY_RECOMP_OS_CXX_SOURCES}
@@ -385,7 +448,7 @@ else()
 endif()
 
 if (LIBERTY_RECOMP_FLATPAK)
-    target_compile_definitions(LibertyRecomp PRIVATE 
+    target_compile_definitions(LibertyRecomp PRIVATE
         "LIBERTY_RECOMP_FLATPAK"
         "GAME_INSTALL_DIRECTORY=\"/var/data\""
     )
@@ -395,6 +458,221 @@ find_package(CURL REQUIRED)
 
 if (LIBERTY_RECOMP_METAL)
     target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_METAL)
+endif()
+
+if (LIBERTY_RECOMP_SWITCH)
+    target_compile_definitions(LibertyRecomp PRIVATE
+        LIBERTY_RECOMP_SWITCH
+        IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
+    )
+    if (LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT)
+        target_compile_definitions(LibertyRecomp PRIVATE
+            LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT
+            "LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE=${LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE}"
+            "LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE=${LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE}")
+        if (NOT LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE STREQUAL "")
+            target_compile_definitions(LibertyRecomp PRIVATE
+                "LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=${LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE}")
+        endif()
+    endif()
+    if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
+        target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
+    endif()
+
+    find_program(LIBERTY_SWITCH_NACPTOOL nacptool
+        HINTS "${DEVKITPRO}/tools/bin"
+        REQUIRED)
+    find_program(LIBERTY_SWITCH_ELF2NRO elf2nro
+        HINTS "${DEVKITPRO}/tools/bin"
+        REQUIRED)
+    find_program(LIBERTY_SWITCH_ELF2NSO elf2nso
+        HINTS "${DEVKITPRO}/tools/bin"
+        REQUIRED)
+    find_program(LIBERTY_SWITCH_NPDMTOOL npdmtool
+        HINTS "${DEVKITPRO}/tools/bin"
+        REQUIRED)
+    find_program(LIBERTY_SWITCH_BUILD_PFS0 build_pfs0
+        HINTS "${DEVKITPRO}/tools/bin"
+        REQUIRED)
+
+    set(LIBERTY_SWITCH_NACP "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecomp.nacp")
+    set(LIBERTY_SWITCH_NRO "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecomp.nro")
+    set(LIBERTY_SWITCH_ROMFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/romfs"
+        CACHE PATH "RomFS directory embedded into the Switch audit NRO")
+    set(LIBERTY_SWITCH_ICON "${PROJECT_SOURCE_DIR}/../LibertyRecompResources/images/game_icon.png"
+        CACHE FILEPATH "Icon embedded into the Switch audit NRO")
+    if (CMAKE_EXE_LINKER_FLAGS MATCHES "(^| )-specs=")
+        set(LIBERTY_SWITCH_TARGET_SPECS_OPTION "")
+    else()
+        set(LIBERTY_SWITCH_TARGET_SPECS_OPTION "-specs=${LIBERTY_SWITCH_SPECS}")
+    endif()
+
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_NACP}"
+        COMMAND "${LIBERTY_SWITCH_NACPTOOL}"
+            --create
+            "${LIBERTY_SWITCH_APP_TITLE}"
+            "${LIBERTY_SWITCH_APP_AUTHOR}"
+            "${LIBERTY_SWITCH_APP_VERSION}"
+            "${LIBERTY_SWITCH_NACP}"
+        COMMENT "Generating Switch NACP metadata"
+        VERBATIM)
+
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_NRO}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${LIBERTY_SWITCH_ROMFS_DIR}"
+        COMMAND "${LIBERTY_SWITCH_ELF2NRO}"
+            "$<TARGET_FILE:LibertyRecomp>"
+            "${LIBERTY_SWITCH_NRO}"
+            "--nacp=${LIBERTY_SWITCH_NACP}"
+            "--romfsdir=${LIBERTY_SWITCH_ROMFS_DIR}"
+            "--icon=${LIBERTY_SWITCH_ICON}"
+        DEPENDS LibertyRecomp "${LIBERTY_SWITCH_NACP}" "${LIBERTY_SWITCH_ICON}"
+        COMMENT "Packaging Switch audit NRO"
+        VERBATIM)
+
+    add_custom_target(LibertyRecompNro ALL
+        DEPENDS "${LIBERTY_SWITCH_NRO}")
+
+    set(LIBERTY_SWITCH_EXEFS_NPDM_JSON "${CMAKE_CURRENT_SOURCE_DIR}/os/switch/liberty_recomp_npdm.json")
+    set(LIBERTY_SWITCH_EXEFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecomp.exefs")
+    set(LIBERTY_SWITCH_NSO "${LIBERTY_SWITCH_EXEFS_DIR}/main")
+    set(LIBERTY_SWITCH_NPDM "${LIBERTY_SWITCH_EXEFS_DIR}/main.npdm")
+    set(LIBERTY_SWITCH_EXEFS "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompExefs.nsp")
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_NSO}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${LIBERTY_SWITCH_EXEFS_DIR}"
+        COMMAND "${LIBERTY_SWITCH_ELF2NSO}"
+            "$<TARGET_FILE:LibertyRecomp>"
+            "${LIBERTY_SWITCH_NSO}"
+        DEPENDS LibertyRecomp
+        COMMENT "Converting Switch audit executable to NSO"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_NPDM}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${LIBERTY_SWITCH_EXEFS_DIR}"
+        COMMAND "${LIBERTY_SWITCH_NPDMTOOL}"
+            "${LIBERTY_SWITCH_EXEFS_NPDM_JSON}"
+            "${LIBERTY_SWITCH_NPDM}"
+        DEPENDS "${LIBERTY_SWITCH_EXEFS_NPDM_JSON}"
+        COMMENT "Generating Switch audit NPDM"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_EXEFS}"
+        COMMAND "${LIBERTY_SWITCH_BUILD_PFS0}"
+            "${LIBERTY_SWITCH_EXEFS_DIR}"
+            "${LIBERTY_SWITCH_EXEFS}"
+        DEPENDS "${LIBERTY_SWITCH_NSO}" "${LIBERTY_SWITCH_NPDM}"
+        COMMENT "Packaging Switch audit ExeFS PFS0"
+        VERBATIM)
+    add_custom_target(LibertyRecompExeFs
+        DEPENDS "${LIBERTY_SWITCH_EXEFS}")
+
+    add_executable(LibertyRecompBootProbe
+        "os/switch/boot_probe_switch.c")
+    target_link_options(LibertyRecompBootProbe PRIVATE
+        ${LIBERTY_SWITCH_TARGET_SPECS_OPTION}
+        "-L${DEVKITPRO}/portlibs/switch/lib"
+        "-L${DEVKITPRO}/libnx/lib"
+        "-L${DEVKITA64}/aarch64-none-elf/lib/pic"
+        "-L${DEVKITA64}/aarch64-none-elf/lib"
+        "-Wl,--gc-sections")
+    target_link_libraries(LibertyRecompBootProbe PRIVATE nx)
+
+    set(LIBERTY_SWITCH_BOOT_PROBE_NACP "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompBootProbe.nacp")
+    set(LIBERTY_SWITCH_BOOT_PROBE_NRO "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompBootProbe.nro")
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_BOOT_PROBE_NACP}"
+        COMMAND "${LIBERTY_SWITCH_NACPTOOL}"
+            --create
+            "Liberty Boot Probe"
+            "${LIBERTY_SWITCH_APP_AUTHOR}"
+            "${LIBERTY_SWITCH_APP_VERSION}"
+            "${LIBERTY_SWITCH_BOOT_PROBE_NACP}"
+        COMMENT "Generating Switch boot probe NACP metadata"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_BOOT_PROBE_NRO}"
+        COMMAND "${LIBERTY_SWITCH_ELF2NRO}"
+            "$<TARGET_FILE:LibertyRecompBootProbe>"
+            "${LIBERTY_SWITCH_BOOT_PROBE_NRO}"
+            "--nacp=${LIBERTY_SWITCH_BOOT_PROBE_NACP}"
+            "--icon=${LIBERTY_SWITCH_ICON}"
+        DEPENDS LibertyRecompBootProbe "${LIBERTY_SWITCH_BOOT_PROBE_NACP}" "${LIBERTY_SWITCH_ICON}"
+        COMMENT "Packaging Switch boot probe NRO"
+        VERBATIM)
+    add_custom_target(LibertyRecompBootProbeNro
+        DEPENDS "${LIBERTY_SWITCH_BOOT_PROBE_NRO}")
+
+    add_executable(LibertyRecompMemoryProbe
+        "os/switch/memory_probe_switch.c")
+    target_link_options(LibertyRecompMemoryProbe PRIVATE
+        ${LIBERTY_SWITCH_TARGET_SPECS_OPTION}
+        "-L${DEVKITPRO}/portlibs/switch/lib"
+        "-L${DEVKITPRO}/libnx/lib"
+        "-L${DEVKITA64}/aarch64-none-elf/lib/pic"
+        "-L${DEVKITA64}/aarch64-none-elf/lib"
+        "-Wl,--gc-sections")
+    target_link_libraries(LibertyRecompMemoryProbe PRIVATE nx)
+
+    set(LIBERTY_SWITCH_MEMORY_PROBE_NACP "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompMemoryProbe.nacp")
+    set(LIBERTY_SWITCH_MEMORY_PROBE_NRO "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompMemoryProbe.nro")
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_MEMORY_PROBE_NACP}"
+        COMMAND "${LIBERTY_SWITCH_NACPTOOL}"
+            --create
+            "Liberty Memory Probe"
+            "${LIBERTY_SWITCH_APP_AUTHOR}"
+            "${LIBERTY_SWITCH_APP_VERSION}"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_NACP}"
+        COMMENT "Generating Switch memory probe NACP metadata"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_MEMORY_PROBE_NRO}"
+        COMMAND "${LIBERTY_SWITCH_ELF2NRO}"
+            "$<TARGET_FILE:LibertyRecompMemoryProbe>"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_NRO}"
+            "--nacp=${LIBERTY_SWITCH_MEMORY_PROBE_NACP}"
+            "--icon=${LIBERTY_SWITCH_ICON}"
+        DEPENDS LibertyRecompMemoryProbe "${LIBERTY_SWITCH_MEMORY_PROBE_NACP}" "${LIBERTY_SWITCH_ICON}"
+        COMMENT "Packaging Switch memory probe NRO"
+        VERBATIM)
+    add_custom_target(LibertyRecompMemoryProbeNro
+        DEPENDS "${LIBERTY_SWITCH_MEMORY_PROBE_NRO}")
+
+    set(LIBERTY_SWITCH_MEMORY_PROBE_NPDM_JSON "${CMAKE_CURRENT_SOURCE_DIR}/os/switch/memory_probe_npdm.json")
+    set(LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompMemoryProbe.exefs")
+    set(LIBERTY_SWITCH_MEMORY_PROBE_NSO "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR}/main")
+    set(LIBERTY_SWITCH_MEMORY_PROBE_NPDM "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR}/main.npdm")
+    set(LIBERTY_SWITCH_MEMORY_PROBE_EXEFS "${CMAKE_CURRENT_BINARY_DIR}/LibertyRecompMemoryProbeExefs.nsp")
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_MEMORY_PROBE_NSO}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR}"
+        COMMAND "${LIBERTY_SWITCH_ELF2NSO}"
+            "$<TARGET_FILE:LibertyRecompMemoryProbe>"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_NSO}"
+        DEPENDS LibertyRecompMemoryProbe
+        COMMENT "Converting Switch memory probe to NSO"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_MEMORY_PROBE_NPDM}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR}"
+        COMMAND "${LIBERTY_SWITCH_NPDMTOOL}"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_NPDM_JSON}"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_NPDM}"
+        DEPENDS "${LIBERTY_SWITCH_MEMORY_PROBE_NPDM_JSON}"
+        COMMENT "Generating Switch memory probe NPDM"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS}"
+        COMMAND "${LIBERTY_SWITCH_BUILD_PFS0}"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS_DIR}"
+            "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS}"
+        DEPENDS "${LIBERTY_SWITCH_MEMORY_PROBE_NSO}" "${LIBERTY_SWITCH_MEMORY_PROBE_NPDM}"
+        COMMENT "Packaging Switch memory probe ExeFS PFS0"
+        VERBATIM)
+    add_custom_target(LibertyRecompMemoryProbeExeFs
+        DEPENDS "${LIBERTY_SWITCH_MEMORY_PROBE_EXEFS}")
 endif()
 
 if (LIBERTY_RECOMP_D3D12)
@@ -428,26 +706,64 @@ if (WIN32)
         winmm
         windowsapp
     )
+    target_link_options(LibertyRecomp PRIVATE /FORCE:MULTIPLE)
+else()
+    target_link_libraries(LibertyRecomp PRIVATE fmt::fmt)
 endif()
 
 target_link_libraries(LibertyRecomp PRIVATE
-    fmt::fmt
     libzstd_static
-    msdf-atlas-gen::msdf-atlas-gen
-    nfd::nfd
     o1heap
-    XenonUtils
-    SDL2::SDL2-static
     SDL2_mixer
     tomlplusplus::tomlplusplus
     LibertyRecompLib
     xxHash::xxhash
     CURL::libcurl
     plume
-    GameNetworkingSockets::static
 )
 
-target_link_libraries(LibertyRecomp PRIVATE ffmpeg)
+if (NOT LIBERTY_RECOMP_SWITCH)
+    target_link_libraries(LibertyRecomp PRIVATE XenonUtils)
+endif()
+
+if (LIBERTY_RECOMP_SWITCH)
+    target_link_options(LibertyRecomp PRIVATE
+        ${LIBERTY_SWITCH_TARGET_SPECS_OPTION}
+        "-L${DEVKITPRO}/portlibs/switch/lib"
+        "-L${DEVKITPRO}/libnx/lib"
+        "-L${DEVKITA64}/aarch64-none-elf/lib/pic"
+        "-L${DEVKITA64}/aarch64-none-elf/lib"
+        "-Wl,--gc-sections")
+    target_link_directories(LibertyRecomp PRIVATE
+        "${DEVKITPRO}/portlibs/switch/lib"
+        "${DEVKITPRO}/libnx/lib"
+        "${DEVKITA64}/aarch64-none-elf/lib/pic"
+        "${DEVKITA64}/aarch64-none-elf/lib")
+    target_link_libraries(LibertyRecomp PRIVATE
+        "${DEVKITPRO}/portlibs/switch/lib/libSDL2.a"
+        EGL
+        stdc++
+        glapi
+        drm_nouveau
+        nx
+        pthread)
+else()
+    target_link_libraries(LibertyRecomp PRIVATE SDL2::SDL2-static)
+endif()
+
+if (NOT LIBERTY_RECOMP_SWITCH)
+    target_link_libraries(LibertyRecomp PRIVATE msdf-atlas-gen::msdf-atlas-gen)
+    target_link_libraries(LibertyRecomp PRIVATE nfd::nfd)
+endif()
+
+if (NOT LIBERTY_RECOMP_SWITCH)
+    target_link_libraries(LibertyRecomp PRIVATE ffmpeg)
+    target_link_libraries(LibertyRecomp PRIVATE GameNetworkingSockets::static)
+endif()
+
+if (WIN32)
+    target_link_libraries(LibertyRecomp PRIVATE "$<TARGET_FILE:LibertyRecompLib>")
+endif()
 
 # Link abseil libraries for GameNetworkingSockets (protobuf dependency)
 if (APPLE)
@@ -461,7 +777,7 @@ if (APPLE)
     find_library(ABSL_HASHTABLEZ_SAMPLER absl_hashtablez_sampler HINTS /opt/homebrew/lib)
     find_library(ABSL_LOG_SINK absl_log_sink HINTS /opt/homebrew/lib)
     if (ABSL_LOG_INTERNAL_CHECK_OP)
-        target_link_libraries(LibertyRecomp PRIVATE 
+        target_link_libraries(LibertyRecomp PRIVATE
             ${ABSL_LOG_INTERNAL_CHECK_OP}
             ${ABSL_LOG_INTERNAL_MESSAGE}
             ${ABSL_LOG_INTERNAL_NULLGUARD}
@@ -482,7 +798,16 @@ target_include_directories(LibertyRecomp PRIVATE
     "${CMAKE_SOURCE_DIR}/glue/rexglue-sdk-main/thirdparty/spdlog/include"
     "${CMAKE_SOURCE_DIR}/glue/rexglue-sdk-main/thirdparty/fmt/include"
     "${CMAKE_SOURCE_DIR}/glue/rexglue-sdk-main/thirdparty/simde"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty/tiny-AES-c"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty/libmspack/libmspack/mspack"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/thirdparty/TinySHA1"
+    "${LIBERTY_RECOMP_TOOLS_ROOT}/XenonRecomp/XenonUtils"
 )
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_definitions(LibertyRecomp PRIVATE __PRFCHWINTRIN_H)
+endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(PkgConfig REQUIRED)

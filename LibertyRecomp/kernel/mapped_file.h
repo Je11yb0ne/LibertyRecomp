@@ -3,9 +3,12 @@
 #include <filesystem>
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__SWITCH__)
+#include <cstdio>
 #else
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -110,6 +113,8 @@ namespace VFS
 #ifdef _WIN32
         HANDLE m_fileHandle = INVALID_HANDLE_VALUE;
         HANDLE m_mapHandle = nullptr;
+#elif defined(__SWITCH__)
+        std::vector<uint8_t> m_storage;
 #else
         int m_fd = -1;
 #endif

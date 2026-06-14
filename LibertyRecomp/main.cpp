@@ -37,6 +37,107 @@
 #include <timeapi.h>
 #endif
 
+#ifdef __SWITCH__
+#include <sys/stat.h>
+
+extern "C" {
+uint32_t fsdevMountSdmc(void);
+int fsdevUnmountDevice(const char* name);
+void* fsdevGetDeviceFileSystem(const char* name);
+uint32_t romfsMountSelf(const char* name);
+uint32_t romfsUnmount(const char* name);
+uint32_t svcOutputDebugString(const char* str, uint64_t size);
+void svcSleepThread(int64_t ns);
+bool envIsNso(void);
+void LibertySwitchShowAuditDiagnostic(const char* title, const char* status, const char* detailPath, const char* logPath);
+}
+
+static constexpr const char* SWITCH_AUDIT_LOG_PATH = "sdmc:/switch/LibertyRecomp/LibertyRecomp.log";
+static constexpr const char* SWITCH_AUDIT_CONTENT_ROOT = "sdmc:/switch/LibertyRecomp";
+static constexpr const char* SWITCH_AUDIT_GAME_ROOT = "sdmc:/switch/LibertyRecomp/game";
+static constexpr const char* SWITCH_AUDIT_MODULE_PATH = "sdmc:/switch/LibertyRecomp/game/default.xex";
+
+static void SwitchAuditDebugRaw(const char* message)
+{
+    svcOutputDebugString(message, strlen(message));
+}
+
+__attribute__((constructor(101)))
+static void SwitchAuditPremainProbe()
+{
+    SwitchAuditDebugRaw("[Switch] premain constructor 101 entered.\n");
+}
+
+static bool SwitchAuditSdmcAvailable()
+{
+    if (fsdevGetDeviceFileSystem("sdmc") != nullptr)
+        return true;
+
+    struct stat sdmcStat;
+    return stat("sdmc:/", &sdmcStat) == 0;
+}
+
+static bool SwitchAuditMountSdmc(uint32_t& mountResult, bool& mountedHere)
+{
+    mountedHere = false;
+    if (SwitchAuditSdmcAvailable())
+    {
+        mountResult = 0;
+        return true;
+    }
+
+    mountResult = fsdevMountSdmc();
+    if (mountResult == 0)
+    {
+        mountedHere = true;
+        return true;
+    }
+
+    return SwitchAuditSdmcAvailable();
+}
+
+static void SwitchAuditLog(const char* message, const std::filesystem::path& path = {})
+{
+    mkdir("sdmc:/switch", 0777);
+    mkdir("sdmc:/switch/LibertyRecomp", 0777);
+    mkdir("sdmc:/switch/LibertyRecomp/game", 0777);
+
+    std::string line = std::string("[Switch] ") + message;
+    if (!path.empty())
+        line += " " + path.string();
+    line += "\n";
+
+    FILE* log = fopen(SWITCH_AUDIT_LOG_PATH, "a");
+    if (log != nullptr)
+    {
+        fputs(line.c_str(), log);
+        fclose(log);
+    }
+
+    svcOutputDebugString(line.c_str(), static_cast<uint64_t>(line.size()));
+    fputs(line.c_str(), stderr);
+}
+
+static void SwitchAuditUnmount(bool romfsMounted, bool sdmcMounted)
+{
+    if (romfsMounted)
+        romfsUnmount("romfs");
+
+    if (sdmcMounted)
+        fsdevUnmountDevice("sdmc");
+}
+
+static bool SwitchAuditFileExists(const char* path)
+{
+    FILE* file = fopen(path, "rb");
+    if (file == nullptr)
+        return false;
+
+    fclose(file);
+    return true;
+}
+#endif
+
 #if defined(_WIN32) && defined(LIBERTY_RECOMP_D3D12)
 static std::array<std::string_view, 3> g_D3D12RequiredModules =
 {
@@ -295,6 +396,110 @@ int main(int argc, char *argv[])
     timeBeginPeriod(1);
 #endif
 
+#ifdef __SWITCH__
+    SwitchAuditDebugRaw("[Switch] main entered.\n");
+    bool switchRomfsMounted = false;
+    bool switchSdmcMounted = false;
+
+    const bool switchRunningAsNso = envIsNso();
+    uint32_t romfsResult = 0;
+    if (switchRunningAsNso)
+    {
+        SwitchAuditDebugRaw("[Switch] envIsNso reported true; skipping romfsMountSelf for SD-only audit package.\n");
+    }
+    else
+    {
+        SwitchAuditDebugRaw("[Switch] mounting romfs.\n");
+        romfsResult = romfsMountSelf("romfs");
+        if (romfsResult != 0)
+            fprintf(stderr, "[Switch] romfsInit failed: 0x%08X\n", romfsResult);
+        else
+            switchRomfsMounted = true;
+    }
+    {
+        char status[128];
+        snprintf(status, sizeof(status), "[Switch] romfsMountSelf status 0x%08X (nso=%u).\n", romfsResult, switchRunningAsNso ? 1u : 0u);
+        SwitchAuditDebugRaw(status);
+    }
+
+    SwitchAuditDebugRaw("[Switch] ensuring sdmc.\n");
+    uint32_t sdmcResult = 0;
+    const bool switchSdmcUsable = SwitchAuditMountSdmc(sdmcResult, switchSdmcMounted);
+    if (!switchSdmcUsable)
+    {
+        fprintf(stderr, "[Switch] fsdevMountSdmc failed and sdmc is unavailable: 0x%08X\n", sdmcResult);
+        char status[128];
+        snprintf(status, sizeof(status), "fsdevMountSdmc failed and sdmc is unavailable: 0x%08X", sdmcResult);
+        SwitchAuditDebugRaw(status);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        for (;;)
+            svcSleepThread(1000000000);
+    }
+
+    if (sdmcResult != 0)
+    {
+        char status[128];
+        snprintf(status, sizeof(status), "fsdevMountSdmc returned 0x%08X; existing sdmc device is usable", sdmcResult);
+        SwitchAuditDebugRaw(status);
+    }
+
+    SwitchAuditLog("Switch audit package startup; continuing to content preflight.");
+
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
+    if (g_memory.base != nullptr)
+    {
+        SwitchAuditLog("Switch guest memory audit mapped successfully; stopping before content preflight and host startup.");
+        LibertySwitchShowAuditDiagnostic(
+            "Guest memory audit",
+            "Guest memory mapped successfully.\n"
+            "Content preflight, host startup, and guest code were skipped.",
+            SWITCH_AUDIT_CONTENT_ROOT,
+            SWITCH_AUDIT_LOG_PATH);
+    }
+    else
+    {
+        SwitchAuditLog("Switch guest memory audit failed; Memory::base is null; stopping before content preflight and host startup.");
+        LibertySwitchShowAuditDiagnostic(
+            "Guest memory audit failed",
+            "Memory::base is null after startup.\n"
+            "Content preflight, host startup, and guest code were skipped.",
+            SWITCH_AUDIT_CONTENT_ROOT,
+            SWITCH_AUDIT_LOG_PATH);
+    }
+    SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+    return 0;
+#endif
+
+    if (!SwitchAuditFileExists(SWITCH_AUDIT_MODULE_PATH))
+    {
+        SwitchAuditLog("Early preflight missing game executable:", SWITCH_AUDIT_MODULE_PATH);
+        SwitchAuditLog("Expected SD layout root:", SWITCH_AUDIT_CONTENT_ROOT);
+        SwitchAuditLog("Expected game content root:", SWITCH_AUDIT_GAME_ROOT);
+        LibertySwitchShowAuditDiagnostic(
+            "Missing game content",
+            "Expected SD root: sdmc:/switch/LibertyRecomp\n"
+            "Expected module: game/default.xex\n"
+            "Host startup and guest code were skipped.",
+            SWITCH_AUDIT_MODULE_PATH,
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+
+    if (g_memory.base == nullptr)
+    {
+        SwitchAuditLog("default.xex was found, but Switch guest memory is disabled; stopping before host startup:", SWITCH_AUDIT_MODULE_PATH);
+        LibertySwitchShowAuditDiagnostic(
+            "Guest memory disabled",
+            "default.xex is present, but this audit build has no guest memory backend.\n"
+            "Host startup and guest code were skipped.",
+            SWITCH_AUDIT_MODULE_PATH,
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
+
     os::process::CheckConsole();
 
     if (!os::registry::Init())
@@ -425,6 +630,24 @@ int main(int argc, char *argv[])
     std::filesystem::path modulePath;
     bool isGameInstalled = Installer::checkGameInstall(GetGamePath(), modulePath);
     bool runInstallerWizard = forceInstaller || forceDLCInstaller || !isGameInstalled;
+
+#ifdef __SWITCH__
+    if (!isGameInstalled)
+    {
+        SwitchAuditLog("Game install is missing; expected module:", modulePath);
+        SwitchAuditLog("Expected SD layout root: sdmc:/switch/LibertyRecomp");
+        SwitchAuditLog("Expected game content root: sdmc:/switch/LibertyRecomp/game");
+        SwitchAuditLog("This NRO is an audit container only and will exit before guest startup.");
+        const std::string modulePathText = modulePath.string();
+        LibertySwitchShowAuditDiagnostic(
+            "Missing game content",
+            "default.xex was not found. Guest startup was skipped.",
+            modulePathText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
     
     // TEMPORARY: Force installer UI to always show for preview
     // TODO: Remove this line after UI preview is done
@@ -454,6 +677,21 @@ int main(int argc, char *argv[])
     uint32_t entry = LdrLoadModule(modulePath);
     printf("[Main] Module loaded, entry=0x%08X\n", entry); fflush(stdout);
 
+#ifdef __SWITCH__
+    if (entry == 0)
+    {
+        SwitchAuditLog("Failed to load guest module; stopping before GuestThread::Start:", modulePath);
+        const std::string modulePathText = modulePath.string();
+        LibertySwitchShowAuditDiagnostic(
+            "Guest module load failed",
+            "LdrLoadModule returned entry=0. Guest startup was skipped.",
+            modulePathText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 1;
+    }
+#endif
+
     if (!runInstallerWizard)
     {
         printf("[Main] Creating video device...\n"); fflush(stdout);
@@ -469,6 +707,10 @@ int main(int argc, char *argv[])
     // Video::StartPipelinePrecompilation();
 
     GuestThread::Start({ entry, 0, 0, 0 });
+
+#ifdef __SWITCH__
+    SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+#endif
 
     return 0;
 }

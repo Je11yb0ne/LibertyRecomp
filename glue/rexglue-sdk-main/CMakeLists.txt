@@ -13,6 +13,7 @@ project(ReXGlue
 #==========================================================
 option(REXGLUE_BUILD_TESTS       "Build PPC instruction and unit tests" OFF)
 option(REXGLUE_ENABLE_SANITIZERS "Enable UndefinedBehaviorSanitizer" OFF)
+option(REXGLUE_CODEGEN_ONLY      "Build only the ReXGlue code generation toolchain" OFF)
 
 # Graphics backend selection
 # D3D12: Windows only, ON by default.
@@ -25,7 +26,7 @@ else()
     option(REXGLUE_USE_VULKAN "Enable Vulkan graphics backend" ON)
 endif()
 
-if(NOT REXGLUE_USE_D3D12 AND NOT REXGLUE_USE_VULKAN)
+if(NOT REXGLUE_CODEGEN_ONLY AND NOT REXGLUE_USE_D3D12 AND NOT REXGLUE_USE_VULKAN)
     message(FATAL_ERROR "At least one graphics backend must be enabled (REXGLUE_USE_D3D12 or REXGLUE_USE_VULKAN)")
 endif()
 
@@ -57,6 +58,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_DEBUG_POSTFIX d)
 set(CMAKE_RELWITHDEBINFO_POSTFIX rd)
 
+if(WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 if(NOT WIN32)
     # -mcmodel=large is x86-only; skip on ARM64/macOS
     if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
@@ -66,15 +71,26 @@ if(NOT WIN32)
 endif()
 
 # Global compile options
-add_compile_options(
-    -fno-strict-aliasing
-    -ffp-model=strict
-    $<$<CONFIG:DEBUG>:-g>
-    $<$<CONFIG:DEBUG>:-O0>
-    $<$<CONFIG:RELEASE>:-O3>
-    $<$<CONFIG:RELEASE>:-DNDEBUG>
-    -fno-char8_t
-)
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    add_compile_options(
+        /fp:strict
+        /Zc:char8_t-
+        /clang:-mssse3
+        $<$<CONFIG:DEBUG>:/Od>
+        $<$<CONFIG:RELEASE>:/O2>
+        $<$<CONFIG:RELEASE>:/DNDEBUG>
+    )
+else()
+    add_compile_options(
+        -fno-strict-aliasing
+        -ffp-model=strict
+        $<$<CONFIG:DEBUG>:-g>
+        $<$<CONFIG:DEBUG>:-O0>
+        $<$<CONFIG:RELEASE>:-O3>
+        $<$<CONFIG:RELEASE>:-DNDEBUG>
+        -fno-char8_t
+    )
+endif()
 
 # Platform detection
 if(WIN32)
@@ -120,10 +136,12 @@ include_directories(${REXGLUE_ROOT}/include)
 
 add_subdirectory(src/core)
 add_subdirectory(src/filesystem)
-add_subdirectory(src/ui)
-add_subdirectory(src/input)
-add_subdirectory(src/audio)
-add_subdirectory(src/graphics)
+if(NOT REXGLUE_CODEGEN_ONLY)
+    add_subdirectory(src/ui)
+    add_subdirectory(src/input)
+    add_subdirectory(src/audio)
+    add_subdirectory(src/graphics)
+endif()
 add_subdirectory(src/system)
 add_subdirectory(src/kernel)
 add_subdirectory(src/codegen)    
@@ -147,7 +165,7 @@ message(STATUS "  Graphics: D3D12=${REXGLUE_USE_D3D12} Vulkan=${REXGLUE_USE_VULK
 message(STATUS "===========================================")
 
 # SDK install/export rules (skipped when consumed as a subdirectory)
-if(PROJECT_IS_TOP_LEVEL)
+if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_SKIP_INSTALL_RULES)
     include(cmake/rexglue_install.cmake)
 else()
     # When consumed via add_subdirectory(), provide the same interface as find_package().

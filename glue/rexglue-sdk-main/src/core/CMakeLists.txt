@@ -74,6 +74,8 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(rexcore PRIVATE pthread rt dl)
 elseif(APPLE)
     target_link_libraries(rexcore PRIVATE pthread dl)
+elseif(WIN32)
+    target_link_libraries(rexcore PRIVATE bcrypt)
 endif()
 
 target_link_libraries(rexcore

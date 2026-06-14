@@ -1,15 +1,10 @@
 // Switch process helpers (libnx)
 #include <os/process.h>
-#include <switch.h>
 #include <unistd.h>
 
 std::filesystem::path os::process::GetExecutablePath()
 {
-    // On Switch homebrew, the NRO is loaded from the SD card
-    // envGetNextLoadPath() gives us the loader path
-    const char* path = envGetNextLoadPath();
-    if (path && path[0] != '\0')
-        return std::filesystem::path(path);
+    // Switch audit stub: final NRO/RomFS packaging should supply the real path.
     return std::filesystem::path("romfs:/");
 }
 
@@ -21,7 +16,7 @@ std::filesystem::path os::process::GetExecutableRoot()
 
 std::filesystem::path os::process::GetWorkingDirectory()
 {
-    char buf[FS_MAX_PATH] = {};
+    char buf[0x301] = {};
     if (getcwd(buf, sizeof(buf)))
         return std::filesystem::path(buf);
     return std::filesystem::path("sdmc:/LibertyRecomp/");

@@ -169,6 +169,8 @@ void UpdateChecker::visitWebsite()
 #elif defined(__APPLE__)
     std::string command = "open " + std::string(VISIT_URL) + " &";
     std::system(command.c_str());
+#elif defined(__SWITCH__)
+    // No system browser launcher is available in the current Switch port.
 #else
     static_assert(false, "Visit website not implemented for this platform.");
 #endif

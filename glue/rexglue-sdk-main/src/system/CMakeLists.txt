@@ -58,6 +58,7 @@ target_include_directories(rexsystem PUBLIC
 )
 target_include_directories(rexsystem PRIVATE
     ${REXGLUE_ROOT}/thirdparty
+    ${REXGLUE_ROOT}/../../tools/XenonRecomp/thirdparty/TinySHA1
 )
 
 target_link_libraries(rexsystem
@@ -71,7 +72,7 @@ target_link_libraries(rexsystem
 )
 
 if(WIN32)
-    target_link_libraries(rexsystem PRIVATE ws2_32)
+    target_link_libraries(rexsystem PRIVATE ws2_32 bcrypt)
 endif()
 
 # Propagate graphics backend selection

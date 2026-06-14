@@ -57,7 +57,7 @@ target_include_directories(rexcodegen
         $<BUILD_INTERFACE:${REXGLUE_ROOT}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
-        ${REXGLUE_ROOT}/thirdparty/disasm
+        ${REXGLUE_ROOT}/../../tools/XenonRecomp/thirdparty/disasm
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/builders
 )
@@ -75,4 +75,3 @@ target_link_libraries(rexcodegen
         xxHash::xxhash
         simde
 )
-

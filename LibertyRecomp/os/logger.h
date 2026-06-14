@@ -3,7 +3,7 @@
 #include <source_location>
 
 #define LOG_IMPL(type, func, str)       os::logger::Log(str, os::logger::ELogType::type, func)
-#define LOGF_IMPL(type, func, str, ...) os::logger::Log(fmt::format(str, ##__VA_ARGS__), os::logger::ELogType::type, func)
+#define LOGF_IMPL(type, func, str, ...) os::logger::Log(fmt::format(str __VA_OPT__(,) __VA_ARGS__), os::logger::ELogType::type, func)
 
 // Function-specific logging.
 

@@ -2,6 +2,7 @@
 #include <os/logger.h>
 #include <cstring>
 #include <algorithm>
+#include <fstream>
 
 namespace VFS
 {
@@ -17,15 +18,22 @@ namespace VFS
 #ifdef _WIN32
         , m_fileHandle(other.m_fileHandle)
         , m_mapHandle(other.m_mapHandle)
+#elif defined(__SWITCH__)
+        , m_storage(std::move(other.m_storage))
 #else
         , m_fd(other.m_fd)
 #endif
     {
+#ifdef __SWITCH__
+        m_data = m_storage.empty() ? nullptr : m_storage.data();
+#endif
         other.m_data = nullptr;
         other.m_size = 0;
 #ifdef _WIN32
         other.m_fileHandle = INVALID_HANDLE_VALUE;
         other.m_mapHandle = nullptr;
+#elif defined(__SWITCH__)
+        other.m_storage.clear();
 #else
         other.m_fd = -1;
 #endif
@@ -45,6 +53,9 @@ namespace VFS
             m_mapHandle = other.m_mapHandle;
             other.m_fileHandle = INVALID_HANDLE_VALUE;
             other.m_mapHandle = nullptr;
+#elif defined(__SWITCH__)
+            m_storage = std::move(other.m_storage);
+            m_data = m_storage.empty() ? nullptr : m_storage.data();
 #else
             m_fd = other.m_fd;
             other.m_fd = -1;
@@ -127,6 +138,37 @@ namespace VFS
             return false;
         }
         
+#elif defined(__SWITCH__)
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file)
+        {
+            LOGF_ERROR("[MappedFile] Failed to open file: {}", path.string());
+            return false;
+        }
+
+        const std::streamsize fileSize = file.tellg();
+        if (fileSize < 0)
+        {
+            LOGF_ERROR("[MappedFile] Failed to get file size: {}", path.string());
+            return false;
+        }
+
+        m_size = static_cast<size_t>(fileSize);
+        if (m_size == 0)
+        {
+            return true;
+        }
+
+        m_storage.resize(m_size);
+        file.seekg(0, std::ios::beg);
+        if (!file.read(reinterpret_cast<char*>(m_storage.data()), fileSize))
+        {
+            LOGF_ERROR("[MappedFile] Failed to read file: {}", path.string());
+            m_storage.clear();
+            m_size = 0;
+            return false;
+        }
+        m_data = m_storage.data();
 #else
         // Unix/macOS implementation
         m_fd = open(path.c_str(), O_RDONLY);
@@ -188,6 +230,8 @@ namespace VFS
                 CloseHandle(m_fileHandle);
                 m_fileHandle = INVALID_HANDLE_VALUE;
             }
+#elif defined(__SWITCH__)
+            m_storage.clear();
 #else
             if (m_fd >= 0)
             {
@@ -214,6 +258,9 @@ namespace VFS
             CloseHandle(m_fileHandle);
             m_fileHandle = INVALID_HANDLE_VALUE;
         }
+#elif defined(__SWITCH__)
+        m_storage.clear();
+        m_data = nullptr;
 #else
         if (m_data)
         {
@@ -255,6 +302,8 @@ namespace VFS
 #ifdef _WIN32
         // Windows doesn't have madvise equivalent for mapped files
         // Could use PrefetchVirtualMemory for WillNeed hint on Windows 8+
+        (void)hint;
+#elif defined(__SWITCH__)
         (void)hint;
 #else
         int advice = MADV_NORMAL;

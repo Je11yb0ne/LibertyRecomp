@@ -9,15 +9,34 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
-#include "crypto/TinySHA1.hpp"
-#include "crypto/rijndael-alg-fst.c"
-#include "crypto/rijndael-alg-fst.h"
-#include "pe/pe_image.h"
+#include "TinySHA1.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <unordered_map>
+#include <vector>
 
 #include <fmt/format.h>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+
+using X_IMAGE_EXPORT_DIRECTORY = IMAGE_EXPORT_DIRECTORY;
+
+#ifndef IMAGE_SUBSYSTEM_XBOX
+#define IMAGE_SUBSYSTEM_XBOX 14
+#endif
+
+#ifndef IMAGE_FILE_MACHINE_POWERPCBE
+#define IMAGE_FILE_MACHINE_POWERPCBE 0x01F2
+#endif
+
+#ifndef IMAGE_SIZEOF_NT_OPTIONAL_HEADER
+#define IMAGE_SIZEOF_NT_OPTIONAL_HEADER sizeof(IMAGE_OPTIONAL_HEADER32)
+#endif
 
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -38,22 +57,59 @@ static const uint8_t xe_xex2_retail_key[16] = {0x20, 0xB1, 0x85, 0xA5, 0x9D, 0x2
 static const uint8_t xe_xex2_devkit_key[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+bool aes_decrypt_cbc(const uint8_t* session_key, const uint8_t* input_buffer,
+                     const size_t input_size, uint8_t* output_buffer,
+                     const size_t output_size, uint8_t* ivec) {
+  BCRYPT_ALG_HANDLE alg = nullptr;
+  BCRYPT_KEY_HANDLE key = nullptr;
+  DWORD object_length = 0;
+  DWORD result_length = 0;
+  bool ok = false;
+
+  if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_AES_ALGORITHM, nullptr, 0) < 0) {
+    return false;
+  }
+
+  if (BCryptSetProperty(alg, BCRYPT_CHAINING_MODE,
+                        reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+                        sizeof(BCRYPT_CHAIN_MODE_CBC), 0) < 0) {
+    goto cleanup;
+  }
+
+  if (BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_length),
+                        sizeof(object_length), &result_length, 0) < 0) {
+    goto cleanup;
+  }
+
+  {
+    std::vector<uint8_t> key_object(object_length);
+    if (BCryptGenerateSymmetricKey(alg, &key, key_object.data(), object_length,
+                                   const_cast<PUCHAR>(session_key), 16, 0) < 0) {
+      goto cleanup;
+    }
+
+    DWORD bytes_written = 0;
+    ok = BCryptDecrypt(key, const_cast<PUCHAR>(input_buffer), static_cast<ULONG>(input_size),
+                       nullptr, ivec, 16, output_buffer, static_cast<ULONG>(output_size),
+                       &bytes_written, 0) >= 0 &&
+         bytes_written == input_size;
+  }
+
+cleanup:
+  if (key != nullptr) {
+    BCryptDestroyKey(key);
+  }
+  if (alg != nullptr) {
+    BCryptCloseAlgorithmProvider(alg, 0);
+  }
+  return ok;
+}
+
 void aes_decrypt_buffer(const uint8_t* session_key, const uint8_t* input_buffer,
                         const size_t input_size, uint8_t* output_buffer, const size_t output_size) {
-  uint32_t rk[4 * (MAXNR + 1)];
   uint8_t ivec[16] = {0};
-  int32_t Nr = rijndaelKeySetupDec(rk, session_key, 128);
-  const uint8_t* ct = input_buffer;
-  uint8_t* pt = output_buffer;
-  for (size_t n = 0; n < input_size; n += 16, ct += 16, pt += 16) {
-    // Decrypt 16 uint8_ts from input -> output.
-    rijndaelDecrypt(rk, Nr, ct, pt);
-    for (size_t i = 0; i < 16; i++) {
-      // XOR with previous.
-      pt[i] ^= ivec[i];
-      // Set previous.
-      ivec[i] = ct[i];
-    }
+  if (!aes_decrypt_cbc(session_key, input_buffer, input_size, output_buffer, output_size, ivec)) {
+    REXLOG_ERROR("AES-CBC decrypt failed.");
   }
 }
 
@@ -579,9 +635,7 @@ int XexModule::ReadImageBasicCompressed(const void* xex_addr, size_t xex_length)
   std::memset(buffer, 0, total_size);  // Quickly zero the contents.
   uint8_t* d = buffer;
 
-  uint32_t rk[4 * (MAXNR + 1)];
   uint8_t ivec[16] = {0};
-  int32_t Nr = rijndaelKeySetupDec(rk, session_key_, 128);
 
   for (size_t n = 0; n < block_count; n++) {
     const uint32_t data_size = comp_info.blocks[n].data_size;
@@ -596,17 +650,9 @@ int XexModule::ReadImageBasicCompressed(const void* xex_addr, size_t xex_length)
         memcpy(d, p, data_size);
         break;
       case XEX_ENCRYPTION_NORMAL: {
-        const uint8_t* ct = p;
-        uint8_t* pt = d;
-        for (size_t m = 0; m < data_size; m += 16, ct += 16, pt += 16) {
-          // Decrypt 16 uint8_ts from input -> output.
-          rijndaelDecrypt(rk, Nr, ct, pt);
-          for (size_t i = 0; i < 16; i++) {
-            // XOR with previous.
-            pt[i] ^= ivec[i];
-            // Set previous.
-            ivec[i] = ct[i];
-          }
+        if (!aes_decrypt_cbc(session_key_, p, data_size, d, data_size, ivec)) {
+          REXLOG_ERROR("AES-CBC block decrypt failed.");
+          return 1;
         }
       } break;
       default:

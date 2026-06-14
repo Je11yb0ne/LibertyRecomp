@@ -67,6 +67,10 @@ RemoveDirectoryA   = 0x82A1A160
 "0x8217C108" = {}
 "0x82A77E28" = {}
 "0x8219E410" = {}
+"0x82A05828" = {}
+"0x82518A90" = {}
+"0x826EA290" = {}
+"0x82154100" = {}
 
 # CRT function boundaries: force codegen to split these out as separate functions
 # (corrected pass 2 — old 0x829xxxxx addresses were mid-function offsets in physics/animation code)

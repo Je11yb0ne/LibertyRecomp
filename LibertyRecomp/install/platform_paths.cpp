@@ -9,6 +9,7 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <mach-o/dyld.h>
+#elif defined(__SWITCH__)
 #else // Linux
 #include <pwd.h>
 #include <unistd.h>
@@ -18,7 +19,7 @@ namespace PlatformPaths
 {
     static std::filesystem::path s_installDir;
     static bool s_initialized = false;
-    
+
     static std::filesystem::path GetHomeDirectory()
     {
 #if defined(_WIN32)
@@ -37,6 +38,8 @@ namespace PlatformPaths
         struct passwd* pw = getpwuid(getuid());
         if (pw) return std::filesystem::path(pw->pw_dir);
         return std::filesystem::path(".");
+#elif defined(__SWITCH__)
+        return std::filesystem::path("sdmc:/switch/LibertyRecomp");
 #else // Linux
         // Check XDG_DATA_HOME first (XDG Base Directory Specification)
         const char* xdgData = std::getenv("XDG_DATA_HOME");
@@ -52,7 +55,7 @@ namespace PlatformPaths
         return std::filesystem::path(".");
 #endif
     }
-    
+
     std::filesystem::path GetInstallDirectory()
     {
         if (!s_initialized)
@@ -63,6 +66,8 @@ namespace PlatformPaths
 #elif defined(__APPLE__)
             // macOS: ~/Library/Application Support/LibertyRecomp/
             s_installDir = GetHomeDirectory() / "Library" / "Application Support" / "LibertyRecomp";
+#elif defined(__SWITCH__)
+            s_installDir = GetHomeDirectory();
 #else // Linux
             // Linux: ~/.local/share/LibertyRecomp/ (XDG compliant)
             s_installDir = GetHomeDirectory() / "LibertyRecomp";
@@ -71,32 +76,32 @@ namespace PlatformPaths
         }
         return s_installDir;
     }
-    
+
     std::filesystem::path GetGameDirectory()
     {
         return GetInstallDirectory() / "game";
     }
-    
+
     std::filesystem::path GetShaderCacheDirectory()
     {
         return GetInstallDirectory() / "shader_cache";
     }
-    
+
     std::filesystem::path GetTempDirectory()
     {
         return GetInstallDirectory() / "temp";
     }
-    
+
     std::filesystem::path GetExtractedRpfDirectory()
     {
         return GetGameDirectory() / "extracted";
     }
-    
+
     std::filesystem::path GetAesKeyPath()
     {
         return GetInstallDirectory() / "aes_key.bin";
     }
-    
+
     std::filesystem::path GetBundledAesKeyPath()
     {
         // The AES key is bundled in LibertyRecompLib/private/aes_key.bin
@@ -105,7 +110,7 @@ namespace PlatformPaths
         // On macOS, it's in the app bundle: .app/Contents/Resources/aes_key.bin
         // or relative to executable for development builds
         std::error_code ec;
-        
+
         // Try app bundle Resources first
         char path[1024];
         uint32_t size = sizeof(path);
@@ -119,7 +124,7 @@ namespace PlatformPaths
                 return resourcesPath;
             }
         }
-        
+
         // Development build: relative to project root
         // Try common development paths
         std::vector<std::filesystem::path> devPaths = {
@@ -128,7 +133,7 @@ namespace PlatformPaths
             "../../LibertyRecompLib/private/aes_key.bin",
             "../../../LibertyRecompLib/private/aes_key.bin",
         };
-        
+
         for (const auto& p : devPaths)
         {
             if (std::filesystem::exists(p, ec))
@@ -136,7 +141,7 @@ namespace PlatformPaths
                 return std::filesystem::absolute(p);
             }
         }
-        
+
         // Last resort: check install directory
         return GetAesKeyPath();
 #elif defined(_WIN32)
@@ -145,19 +150,19 @@ namespace PlatformPaths
         wchar_t path[MAX_PATH];
         GetModuleFileNameW(nullptr, path, MAX_PATH);
         std::filesystem::path execPath(path);
-        
+
         auto bundledPath = execPath.parent_path() / "aes_key.bin";
         if (std::filesystem::exists(bundledPath, ec))
         {
             return bundledPath;
         }
-        
+
         // Development paths
         std::vector<std::filesystem::path> devPaths = {
             "LibertyRecompLib/private/aes_key.bin",
             "../LibertyRecompLib/private/aes_key.bin",
         };
-        
+
         for (const auto& p : devPaths)
         {
             if (std::filesystem::exists(p, ec))
@@ -165,7 +170,24 @@ namespace PlatformPaths
                 return std::filesystem::absolute(p);
             }
         }
-        
+
+        return GetAesKeyPath();
+#elif defined(__SWITCH__)
+        std::error_code ec;
+        const std::vector<std::filesystem::path> switchPaths = {
+            "romfs:/aes_key.bin",
+            "romfs:/LibertyRecompLib/private/aes_key.bin",
+            GetAesKeyPath(),
+        };
+
+        for (const auto& p : switchPaths)
+        {
+            if (std::filesystem::exists(p, ec))
+            {
+                return p;
+            }
+        }
+
         return GetAesKeyPath();
 #else
         // Linux: next to executable or development path
@@ -179,12 +201,12 @@ namespace PlatformPaths
                 return bundledPath;
             }
         }
-        
+
         std::vector<std::filesystem::path> devPaths = {
             "LibertyRecompLib/private/aes_key.bin",
             "../LibertyRecompLib/private/aes_key.bin",
         };
-        
+
         for (const auto& p : devPaths)
         {
             if (std::filesystem::exists(p, ec))
@@ -192,11 +214,11 @@ namespace PlatformPaths
                 return std::filesystem::absolute(p);
             }
         }
-        
+
         return GetAesKeyPath();
 #endif
     }
-    
+
     void EnsureDirectoriesExist()
     {
         std::error_code ec;
@@ -206,20 +228,22 @@ namespace PlatformPaths
         std::filesystem::create_directories(GetTempDirectory(), ec);
         std::filesystem::create_directories(GetExtractedRpfDirectory(), ec);
     }
-    
+
     void CleanupTemp()
     {
         std::error_code ec;
         std::filesystem::remove_all(GetTempDirectory(), ec);
         std::filesystem::create_directories(GetTempDirectory(), ec);
     }
-    
+
     std::string GetPlatformName()
     {
 #if defined(_WIN32)
         return "Windows";
 #elif defined(__APPLE__)
         return "macOS";
+#elif defined(__SWITCH__)
+        return "Switch";
 #else
         return "Linux";
 #endif

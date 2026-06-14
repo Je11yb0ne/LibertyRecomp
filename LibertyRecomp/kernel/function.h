@@ -349,7 +349,13 @@ T GuestToHostFunction(const TFunction& func, TArgs&&... argv)
 }
 
 #define GUEST_FUNCTION_HOOK(subroutine, function) \
-    PPC_FUNC(subroutine) { HostToGuestFunction<function>(ctx, base); }
+    PPC_FUNC_IMPL(subroutine) { HostToGuestFunction<function>(ctx, base); }
+
+#define GUEST_FUNCTION_HOOK_C(subroutine, function) \
+    PPC_FUNC_IMPL(subroutine) { HostToGuestFunction<function>(ctx, base); }
 
 #define GUEST_FUNCTION_STUB(subroutine) \
-    PPC_FUNC(subroutine) { }
+    PPC_FUNC_IMPL(subroutine) { }
+
+#define GUEST_FUNCTION_STUB_C(subroutine) \
+    PPC_FUNC_IMPL(subroutine) { }

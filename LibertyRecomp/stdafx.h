@@ -1,9 +1,12 @@
 #pragma once
 
 #define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <timeapi.h>
+#include <Xinput.h>
 #include <ShlObj_core.h>
 #include <wrl/client.h>
 
@@ -56,6 +59,6 @@ using Microsoft::WRL::ComPtr;
 #include "framework.h"
 #include "mutex.h"
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__SWITCH__)
 #include <sys/mman.h>
 #endif

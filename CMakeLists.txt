@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.20)
 
-if(NOT DEFINED ENV{VCPKG_ROOT})
+if(NOT DEFINED ENV{VCPKG_ROOT} AND NOT CMAKE_TOOLCHAIN_FILE MATCHES "switch-libnx")
     message(FATAL_ERROR "VCPKG_ROOT is not defined!")
 endif()
 
