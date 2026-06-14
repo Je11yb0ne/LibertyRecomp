@@ -1,0 +1,32 @@
+﻿diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2443de3..5d209ca 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3,6 +3,14 @@ set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+ project(plume)
+ 
++if(LIBERTY_RECOMP_SWITCH)
++    add_library(plume INTERFACE)
++    target_include_directories(plume INTERFACE
++        ${CMAKE_CURRENT_SOURCE_DIR}
++        ${CMAKE_CURRENT_SOURCE_DIR}/contrib/Vulkan-Headers/include)
++    return()
++endif()
++
+ if(APPLE)
+     enable_language(OBJC OBJCXX)
+ endif()
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index ec756d3..2fb9217 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -41,6 +41,8 @@ namespace plume {
+     typedef ANativeWindow* RenderWindow;
+ #elif defined(SDL_VULKAN_ENABLED)
+     typedef SDL_Window *RenderWindow;
++#elif defined(__SWITCH__)
++    typedef void* RenderWindow;
+ #elif defined(__linux__)
+     struct RenderWindow {
+         Display* display;

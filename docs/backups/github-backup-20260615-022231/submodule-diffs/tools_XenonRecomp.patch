@@ -1,0 +1,45 @@
+﻿diff --git a/XenonUtils/CMakeLists.txt b/XenonUtils/CMakeLists.txt
+index 1807323..047f97e 100644
+--- a/XenonUtils/CMakeLists.txt
++++ b/XenonUtils/CMakeLists.txt
+@@ -30,3 +30,7 @@ target_link_libraries(XenonUtils
+     PUBLIC
+         disasm
+ )
++
++if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++    target_compile_options(XenonUtils PRIVATE -fms-extensions)
++endif()
+diff --git a/XenonUtils/xbox.h b/XenonUtils/xbox.h
+index 3eee862..a55fe2c 100644
+--- a/XenonUtils/xbox.h
++++ b/XenonUtils/xbox.h
+@@ -247,13 +247,13 @@ typedef struct _XXOVERLAPPED {
+         {
+             be<uint32_t> Error;
+             be<uint32_t> Length;
+-        };
++        } Result;
+ 
+         struct
+         {
+             uint32_t InternalLow;
+             uint32_t InternalHigh;
+-        };
++        } Internal;
+     };
+     uint32_t InternalContext;
+     be<uint32_t> hEvent;
+diff --git a/XenonUtils/xdbf.h b/XenonUtils/xdbf.h
+index 347ac2c..726551c 100644
+--- a/XenonUtils/xdbf.h
++++ b/XenonUtils/xdbf.h
+@@ -132,7 +132,7 @@ union XDBFTitleID
+     {
+         be<uint16_t> u16;
+         char u8[0x02];
+-    };
++    } Split;
+ 
+     be<uint32_t> u32;
+ };
