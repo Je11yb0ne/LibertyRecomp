@@ -11,6 +11,9 @@ endif()
 if (LIBERTY_RECOMP_SWITCH)
     option(LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT "Enable the Switch sparse guest-memory audit backend." OFF)
     option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP "Stop the Switch audit build after guest-memory mapping." OFF)
+    option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS
+        "Skip generated function-table initialization in the Switch sparse memory audit backend."
+        ${LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP})
     set(LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE "0x4000000"
         CACHE STRING "Low guest-memory window size for the Switch sparse memory audit.")
     set(LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE "0x2000000"
@@ -477,6 +480,9 @@ if (LIBERTY_RECOMP_SWITCH)
     endif()
     if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
         target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
+    endif()
+    if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
+        target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
     endif()
 
     find_program(LIBERTY_SWITCH_NACPTOOL nacptool

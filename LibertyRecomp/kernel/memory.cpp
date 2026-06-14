@@ -98,6 +98,44 @@ static bool MapSwitchGuestRange(uint8_t* guestBase, size_t offset, size_t size, 
     return true;
 }
 
+static size_t GetSwitchImageAndFunctionTableSize() noexcept
+{
+    constexpr size_t kFunctionTableBegin = PPC_IMAGE_BASE + PPC_IMAGE_SIZE;
+    constexpr size_t kFunctionTableSize = (PPC_CODE_SIZE * 2) + sizeof(PPCFunc*);
+    constexpr size_t kImageAndFunctionTableBegin = AlignDown(PPC_IMAGE_BASE, kSwitchPageSize);
+    constexpr size_t kImageAndFunctionTableEnd = AlignUp(kFunctionTableBegin + kFunctionTableSize, kSwitchPageSize);
+
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE)
+    return LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE;
+#elif defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
+    return kImageAndFunctionTableEnd - kImageAndFunctionTableBegin;
+#else
+    size_t maxTableEnd = kFunctionTableBegin + kFunctionTableSize;
+    uint32_t maxGuest = static_cast<uint32_t>(PPC_CODE_BASE + PPC_CODE_SIZE);
+
+    for (size_t i = 0; PPCFuncMappings[i].guest != 0; i++)
+    {
+        const uint32_t guest = PPCFuncMappings[i].guest;
+        if (guest < PPC_CODE_BASE)
+            continue;
+
+        const size_t tableEnd = kFunctionTableBegin + ((static_cast<size_t>(guest) - PPC_CODE_BASE) * 2) + sizeof(PPCFunc*);
+        if (tableEnd > maxTableEnd)
+        {
+            maxTableEnd = tableEnd;
+            maxGuest = guest;
+        }
+    }
+
+    const size_t mappedEnd = AlignUp(maxTableEnd, kSwitchPageSize);
+    SwitchMemoryDebugf(
+        "[Switch][Memory] function table max guest=0x%08X mapped_size=0x%zX\n",
+        maxGuest,
+        mappedEnd - kImageAndFunctionTableBegin);
+    return mappedEnd - kImageAndFunctionTableBegin;
+#endif
+}
+
 static uint8_t* AllocateSwitchGuestMemory() noexcept
 {
     SwitchMemoryDebug("[Switch][Memory] allocate begin\n");
@@ -144,16 +182,8 @@ static uint8_t* AllocateSwitchGuestMemory() noexcept
 
     auto* guestBase = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(aliasRegionAddress));
 
-    constexpr size_t kFunctionTableBegin = PPC_IMAGE_BASE + PPC_IMAGE_SIZE;
-    constexpr size_t kFunctionTableSize = (PPC_CODE_SIZE * 2) + sizeof(PPCFunc*);
     constexpr size_t kImageAndFunctionTableBegin = AlignDown(PPC_IMAGE_BASE, kSwitchPageSize);
-    constexpr size_t kImageAndFunctionTableEnd = AlignUp(kFunctionTableBegin + kFunctionTableSize, kSwitchPageSize);
-    constexpr size_t kImageAndFunctionTableSize =
-#if defined(LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE)
-        LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE;
-#else
-        kImageAndFunctionTableEnd - kImageAndFunctionTableBegin;
-#endif
+    const size_t kImageAndFunctionTableSize = GetSwitchImageAndFunctionTableSize();
 
     if (!MapSwitchGuestRange(guestBase, 0, kSwitchGuestLowMemorySize, "low guest heap"))
         return nullptr;
@@ -235,8 +265,8 @@ Memory::Memory()
     // Do not install a null-page guard in that case.
 #endif
 
-#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
-    SwitchMemoryDebug("[Switch][Memory] audit stop build; skipping function mappings\n");
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
+    SwitchMemoryDebug("[Switch][Memory] audit build; skipping function mappings\n");
     return;
 #endif
 
