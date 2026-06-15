@@ -72,6 +72,7 @@ File: `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\install\p
 - CMake now packages an NRO with a build-directory `romfs` placeholder, but the directory is currently empty.
 - Current `main.cpp` audit build mounts the default `romfs:` device with `romfsMountSelf("romfs")`, checks whether `sdmc:` is already registered before calling `fsdevMountSdmc()`, appends startup/content-preflight diagnostics to `sdmc:/switch/LibertyRecomp/LibertyRecomp.log`, and unmounts only devices it mounted itself.
 - Current `main.cpp` audit build skips `romfsMountSelf()` when libnx `envIsNso()` reports true, because the devkitPro ExeFS PFS0 audit packages do not provide a RomFS data storage and Ryujinx throws internally when `romfsMountSelf()` is attempted in that package form. SD remains the active audit content path.
+- `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD` is a Switch-only audit stop that runs `Config::Load()` after SD/RomFS startup and then stops before content preflight, host startup, module loading, or guest code. It exists to isolate host config behavior and is not a release/runtime feature.
 - A visible boot-probe test showed `fsdevMountSdmc()` returning `0x00000559` on both hardware and Ryujinx. The corrected probe showed this is compatible with `sdmc:` already being registered; file writes work when the existing device is used.
 - Missing `sdmc:/switch/LibertyRecomp/game/default.xex` now stops on a visible `Missing game content` diagnostic before host startup or guest code. If `default.xex` exists while Switch guest memory is still disabled, the build stops on a visible `Guest memory disabled` diagnostic before `KiSystemStartup()`.
 - Full LibertyRecomp now has both `LibertyRecompNro` and `LibertyRecompExeFs` audit packaging targets. `LibertyRecompExeFs` uses `os/switch/liberty_recomp_npdm.json` with `system_resource_size=0x10000000`, but guest memory remains disabled by default.
@@ -120,6 +121,12 @@ File: `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\os\switch
 File: `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\user\paths.cpp`
 
 - Switch startup avoids pre-main `std::filesystem::exists()` checks against `romfs:` because RomFS is not mounted until `main()`. `GetUserPath()` currently returns a lazy `sdmc:/switch/LibertyRecomp` path. Revisit once final RomFS/SD layout and first-run behavior are defined.
+
+File: `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\user\config.cpp`
+
+- `Config::Save()` now writes visible config definitions grouped by TOML section so the GTA IV binding layout does not emit duplicate `[Input]` tables.
+- `Config::Load()` checks for duplicate TOML tables before calling `toml::parse()` and rewrites defaults if an old invalid config is found. This avoids the known Ryujinx/GCC 15 unwinder path for this specific parse-error case.
+- Switch-only config breadcrumbs use `svcOutputDebugString()` for audit runs. This is diagnostic instrumentation; final user-facing config/error behavior still needs a real Switch UI policy.
 
 File: `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\install\update_checker.cpp`
 
@@ -176,7 +183,7 @@ Current Switch guest memory/page-protection work is audit scaffolding.
 - With `4 KiB` low memory and the full scanned image/function-table mapping retained, capacity testing confirmed physical heap windows of `8 MiB`, `12 MiB`, `14 MiB`, and `15 MiB` succeed, while `16 MiB` fails. The current CMake audit defaults are `LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE=0x1000` and `LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE=0xF00000`.
 - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT` is a narrower startup audit mode. It maps `0x30000` low memory, the `64 KiB` XMA I/O window, a `15 MiB` physical heap window, and the Xenon fixed memory span `0x82000000..0x831F0000`; it skips generated function-table insertion and bypasses host config/content/module loading, then runs `KiSystemStartup()` only through `g_userHeap.Init()` and `InitializeXenonMemoryRegions()`.
 - Ryujinx confirmed the startup-memory/Xenon-init audit Build ID `539c9829646e4f6e847b882ee8468d40cc579702` reaches the visible audit stop after heap/Xenon initialization. This is still not guest code and not playable.
-- An intermediate attempt to continue through `Config::Load()` hit Ryujinx's GCC 15 unwinder/toolchain blocker (`Unknown MRS ... gcspr_el0`) before any guest code. Do not treat that as a gameplay crash; audit host config/error handling separately before advancing normal startup.
+- The `Config::Load()` host-config blocker was narrowed to an invalid generated TOML file: `Config::Save()` previously emitted duplicate `[Input]` tables, which made `toml::parse()` throw and enter Ryujinx's GCC 15 unwinder/toolchain blocker (`Unknown MRS ... gcspr_el0`). The current config-audit build rewrites that old file before parsing, and a second run parses successfully.
 - Default Switch startup builds now leave `Memory::base=nullptr` and stop in `main()` before any guest-memory use.
 - `C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\LibertyRecomp\kernel\heap.cpp` caps Switch `o1heap` arenas to the sparse mapped audit windows.
 - This replaced the previous Switch `new (std::nothrow) uint8_t[4 GiB]` allocation, which failed during global `Memory g_memory` construction and entered GCC's C++ unwinder on hardware.

@@ -5,8 +5,79 @@
 #include <ui/options_menu.h>
 #include <user/paths.h>
 #include <app.h>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <set>
+#include <system_error>
 
 std::vector<IConfigDef*> g_configDefinitions;
+
+#if defined(__SWITCH__)
+extern "C" uint32_t svcOutputDebugString(const char* str, uint64_t size);
+
+static void SwitchConfigDebug(const char* message) noexcept
+{
+    svcOutputDebugString(message, std::strlen(message));
+}
+#else
+static void SwitchConfigDebug(const char*) noexcept
+{
+}
+#endif
+
+static std::string TrimConfigLine(std::string line)
+{
+    const auto isSpace = [](unsigned char ch)
+    {
+        return std::isspace(ch) != 0;
+    };
+
+    while (!line.empty() && isSpace(static_cast<unsigned char>(line.front())))
+        line.erase(line.begin());
+
+    while (!line.empty() && isSpace(static_cast<unsigned char>(line.back())))
+        line.pop_back();
+
+    return line;
+}
+
+static bool ConfigFileHasDuplicateTable(const std::filesystem::path& configPath, std::string& duplicateTable)
+{
+    std::ifstream input(configPath);
+    if (!input.is_open())
+        return false;
+
+    std::set<std::string> tables;
+    std::string line;
+    while (std::getline(input, line))
+    {
+        const auto commentPos = line.find('#');
+        if (commentPos != std::string::npos)
+            line.resize(commentPos);
+
+        line = TrimConfigLine(line);
+        if (line.size() < 3 || line.front() != '[' || line.back() != ']')
+            continue;
+
+        if (line.size() > 3 && line[1] == '[')
+            continue;
+
+        auto tableName = TrimConfigLine(line.substr(1, line.size() - 2));
+        if (tableName.empty())
+            continue;
+
+        if (!tables.insert(tableName).second)
+        {
+            duplicateTable = tableName;
+            return true;
+        }
+    }
+
+    return false;
+}
 
 #define CONFIG_DEFINE_ENUM_TEMPLATE(type) \
     static std::unordered_map<std::string, type> g_##type##_template =
@@ -832,16 +903,40 @@ void Config::CreateCallbacks()
 
 void Config::Load()
 {
+    SwitchConfigDebug("[Switch][Config] Load begin\n");
+
     if (!s_isCallbacksCreated)
     {
         CreateCallbacks();
         s_isCallbacksCreated = true;
+        SwitchConfigDebug("[Switch][Config] callbacks created\n");
     }
 
     auto configPath = GetConfigPath();
+    SwitchConfigDebug("[Switch][Config] config path resolved\n");
 
-    if (!std::filesystem::exists(configPath))
+    std::error_code existsEc;
+    const bool configExists = std::filesystem::exists(configPath, existsEc);
+    if (existsEc)
     {
+        LOGFN_ERROR("Failed to query configuration path '{}': {}", configPath.string(), existsEc.message());
+        SwitchConfigDebug("[Switch][Config] exists query failed; saving defaults\n");
+        Config::Save();
+        return;
+    }
+
+    if (!configExists)
+    {
+        SwitchConfigDebug("[Switch][Config] config missing; saving defaults\n");
+        Config::Save();
+        return;
+    }
+
+    std::string duplicateTable;
+    if (ConfigFileHasDuplicateTable(configPath, duplicateTable))
+    {
+        LOGFN_ERROR("Configuration '{}' contains duplicate TOML table '{}'; rewriting defaults.", configPath.string(), duplicateTable);
+        SwitchConfigDebug("[Switch][Config] duplicate TOML table found; saving defaults\n");
         Config::Save();
         return;
     }
@@ -851,8 +946,10 @@ void Config::Load()
         toml::parse_result toml;
         std::ifstream tomlStream(configPath);
 
+        SwitchConfigDebug("[Switch][Config] before TOML parse\n");
         if (tomlStream.is_open())
             toml = toml::parse(tomlStream);
+        SwitchConfigDebug("[Switch][Config] TOML parse returned\n");
 
         for (auto def : g_configDefinitions)
         {
@@ -862,41 +959,64 @@ void Config::Load()
             LOGFN_UTILITY("{} (0x{:X})", def->GetDefinition().c_str(), (intptr_t)def->GetValue());
 #endif
         }
+
+        SwitchConfigDebug("[Switch][Config] Load complete\n");
     }
     catch (toml::parse_error& err)
     {
         LOGFN_ERROR("Failed to parse configuration: {}", err.what());
+        SwitchConfigDebug("[Switch][Config] TOML parse exception caught\n");
     }
 }
 
 void Config::Save()
 {
+    SwitchConfigDebug("[Switch][Config] Save begin\n");
     LOGN("Saving configuration...");
 
     auto userPath = GetUserPath();
 
-    if (!std::filesystem::exists(userPath))
-        std::filesystem::create_directory(userPath);
+    std::error_code existsEc;
+    const bool userPathExists = std::filesystem::exists(userPath, existsEc);
+    if (existsEc)
+        LOGFN_ERROR("Failed to query user path '{}': {}", userPath.string(), existsEc.message());
+
+    if (!userPathExists && !existsEc)
+    {
+        std::error_code createEc;
+        std::filesystem::create_directories(userPath, createEc);
+        if (createEc)
+            LOGFN_ERROR("Failed to create user path '{}': {}", userPath.string(), createEc.message());
+    }
 
     std::string result;
-    std::string section;
+    std::vector<IConfigDef*> visibleDefinitions;
+    std::vector<std::string> sectionOrder;
 
     for (auto def : g_configDefinitions)
     {
         if (def->IsHidden())
             continue;
 
-        auto isFirstSection = section.empty();
-        auto isDefWithSection = section != def->GetSection();
-        auto tomlDef = def->GetDefinition(isDefWithSection);
+        visibleDefinitions.emplace_back(def);
 
-        section = def->GetSection();
+        const auto section = std::string(def->GetSection());
+        if (std::find(sectionOrder.begin(), sectionOrder.end(), section) == sectionOrder.end())
+            sectionOrder.emplace_back(section);
+    }
 
-        // Don't output prefix space for first section.
-        if (!isFirstSection && isDefWithSection)
+    for (const auto& section : sectionOrder)
+    {
+        if (!result.empty())
             result += '\n';
 
-        result += tomlDef + '\n';
+        result += "[" + section + "]\n";
+
+        for (auto def : visibleDefinitions)
+        {
+            if (def->GetSection() == section)
+                result += def->GetDefinition(false) + '\n';
+        }
     }
 
     std::ofstream out(GetConfigPath());
@@ -909,7 +1029,10 @@ void Config::Save()
     else
     {
         LOGN_ERROR("Failed to write configuration.");
+        SwitchConfigDebug("[Switch][Config] Save failed to open output\n");
     }
+
+    SwitchConfigDebug("[Switch][Config] Save complete\n");
 }
 
 bool Config::IsControllerIconsPS3()

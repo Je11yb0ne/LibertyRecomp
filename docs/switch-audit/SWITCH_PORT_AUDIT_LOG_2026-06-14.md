@@ -865,3 +865,108 @@ Current conclusion:
 - ExeFS/NPDM sparse Alias-region mapping can now support a minimal early-runtime container through `KiSystemStartup()` heap/Xenon fixed-memory initialization.
 - This still does not load `default.xex`, does not initialize content/audio/video, does not insert generated function mappings, and does not run guest code.
 - The next practical Switch blocker is deciding how to advance host config/content startup without relying on C++ exception/unwind paths that trigger the Ryujinx `gcspr_el0` limitation, then defining the real `sdmc:/switch/LibertyRecomp` game-content layout for module loading.
+
+## 2026-06-15 Update: Host Config Path Audit
+
+Root cause:
+
+- The earlier `Config::Load()` Ryujinx failure was caused by an invalid generated `sdmc:/switch/LibertyRecomp/config.toml`, not by guest gameplay.
+- `Config::Save()` previously wrote TOML sections whenever the next config definition changed section. The GTA IV config definitions contain `Input`, then `Bindings`, then more `Input` definitions, so the generated file contained duplicate `[Input]` tables.
+- Python `tomllib` confirmed the old file was invalid: `Cannot declare ('Input',) twice`.
+- On Switch/Ryujinx, that invalid file made `toml::parse()` throw `toml::parse_error`, which entered GCC 15 libgcc unwinding and hit Ryujinx's known `gcspr_el0` `Unknown MRS 0xD53B2521` limitation.
+
+Source changes:
+
+- Added `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD`, a Switch-only audit stop that runs `Config::Load()` after SD/RomFS startup and then stops before content preflight, host startup, module loading, or guest code.
+- Changed `Config::Save()` to group visible config definitions by TOML section so each table is written once.
+- Changed `Config::Load()` to use non-throwing `std::filesystem::exists(..., std::error_code)` and to scan for duplicate TOML tables before calling `toml::parse()`.
+- If an old duplicate-table config is found, `Config::Load()` rewrites defaults and returns before TOML parsing, avoiding the known parse-error unwinder path for this specific failure.
+- Added Switch-only `svcOutputDebugString()` breadcrumbs in `Config::Load()`/`Config::Save()` for audit logs.
+
+Config-audit ExeFS:
+
+- Build ID:
+  `e9ec24d9e526020fd8f8b1d392b7f60a69bcaeb9`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-guest-memory-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE=0x30000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE=0xF00000`
+
+First config-audit run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_12-45-05.log`
+- Result:
+  - Reached `Config::Load()`.
+  - Detected duplicate TOML table `Input`.
+  - Rewrote defaults through `Config::Save()`.
+  - Returned to the config-audit visible stop.
+  - The rewritten `config.toml` parsed successfully with Python `tomllib`, and `[Input]` appeared once.
+
+Important first-run lines:
+
+```text
+[Switch][Config] Load begin
+[Switch][Config] config path resolved
+[*] Configuration 'sdmc:/switch/LibertyRecomp/config.toml' contains duplicate TOML table 'Input'; rewriting defaults.
+[Switch][Config] duplicate TOML table found; saving defaults
+[Switch][Config] Save begin
+[Switch][Config] Save complete
+[Switch] Switch config audit: Config::Load returned; stopping before content preflight, host startup, and guest code.
+```
+
+Second config-audit run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_12-45-49.log`
+- Result:
+  - Reached `Config::Load()`.
+  - Entered `toml::parse()`.
+  - `toml::parse()` returned.
+  - Config definitions were read and `Config::Load()` completed.
+  - No `Unknown MRS`, `gcspr`, `Unhandled exception`, or `InvalidMemory` lines were present.
+
+Important second-run lines:
+
+```text
+[Switch][Config] before TOML parse
+[Switch][Config] TOML parse returned
+[Switch][Config] Load complete
+[Switch] Switch config audit: Config::Load returned; stopping before content preflight, host startup, and guest code.
+```
+
+Default package rebuild after config-path changes:
+
+- Default ExeFS/NRO Build ID:
+  `2ed83a63ea6731734eac1f860600ebb1f20d690d`
+- Default ExeFS artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Default NRO artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecomp.nro`
+- `readelf -dW` still reports no `TEXTREL`.
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_12-42-40.log`
+- SD log:
+  `D:\Games\Ryujinx\Ryujinx\portable\sdcard\switch\LibertyRecomp\LibertyRecomp.log`
+- Result:
+  - Guest memory remained disabled in the default startup-container build.
+  - The app reached `main()`.
+  - The app stopped at missing `sdmc:/switch/LibertyRecomp/game/default.xex`.
+  - No guest code was started.
+
+PTC note:
+
+- Ryujinx PTC was temporarily disabled only while running fresh audit packages to avoid stale translation-cache failures.
+- `D:\Games\Ryujinx\Ryujinx\portable\Config.json` was restored to `"enable_ptc": true`.
+
+Current conclusion:
+
+- The host config path can now be advanced past the specific duplicate-table TOML failure in Ryujinx.
+- This does not make the Switch build playable.
+- The next practical Switch work is to continue from host config toward content/module preflight and define the real `sdmc:/switch/LibertyRecomp` game-content layout, while keeping guest code blocked until guest memory/page backing is designed.

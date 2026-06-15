@@ -450,6 +450,20 @@ int main(int argc, char *argv[])
 
     SwitchAuditLog("Switch audit package startup; continuing to content preflight.");
 
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD)
+    SwitchAuditLog("Switch config audit: before Config::Load.");
+    Config::Load();
+    SwitchAuditLog("Switch config audit: Config::Load returned; stopping before content preflight, host startup, and guest code.");
+    LibertySwitchShowAuditDiagnostic(
+        "Config audit",
+        "Config::Load returned.\n"
+        "Content preflight, host startup, module loading, and guest code were skipped.",
+        SWITCH_AUDIT_CONTENT_ROOT,
+        SWITCH_AUDIT_LOG_PATH);
+    SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+    return 0;
+#endif
+
 #if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
     if (g_memory.base != nullptr)
     {
