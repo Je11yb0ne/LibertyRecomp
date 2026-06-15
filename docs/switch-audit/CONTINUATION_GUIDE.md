@@ -8,7 +8,7 @@ This is not a playable Switch port. All current Switch artifacts are audit packa
 
 ## Current Stage Goal
 
-Audit XDBF/resource pointer setup plus the known collision/stream/worker loader side effects under the module-load preflight, after staged XEX image materialization has been verified. This must still stop before `GuestThread::Start()`, generated PPC code, video/audio startup, or gameplay execution.
+Review whether the Switch pre-guest audit baseline is now stable enough to pivot the mainline back to Windows runtime / unfinished upstream code. Switch work should remain available for regression checks and narrowly scoped pre-guest boundary fixes, but should not enter `GuestThread::Start()`, generated PPC code, video/audio startup, or gameplay execution unless the guide explicitly changes that boundary.
 
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
@@ -18,9 +18,16 @@ Current stage rule: do not modify `tools/XenonRecomp` yet. First reproduce or na
 
 Local host-side profiling result: a read-only parser against `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)\default.xex` completed XEX key decrypt, image decrypt, basic decompression, and PE section scan in about `461 ms` on Windows. It reported three basic-compression blocks, `13` PE sections, `imageSize=0x11F0000`, `imageBase=0x82000000`, and entry `0x829A0860`. This suggests the 240-second Ryujinx stall is not simply that the source XEX is too large to parse; the next minimal Switch boundary should log equivalent phases inside the Switch audit path before calling full `Image::ParseImage()`.
 
-Latest Switch result: the staged basic-decompression view avoids the `0x11F0000` output allocation, reads PE/import slices directly from the decrypted payload, completes the module preflight in Ryujinx, and materializes the staged XEX image into the mapped guest image span. It finds `13` PE sections, `2` import libraries, `484` import descriptors, `0` missing thunk targets, copies `11829248` staged data bytes, zero-fills `6979584` bytes, verifies the written guest memory, then stops before XDBF/resource pointer setup, real loader side effects, and `GuestThread::Start()`.
+Latest Switch result: the staged basic-decompression view avoids the `0x11F0000` output allocation, reads PE/import slices directly from the decrypted payload, completes the module preflight in Ryujinx, materializes the staged XEX image into the mapped guest image span, validates/initializes the XDBF resource wrapper, zeroes the collision range, initializes the stream struct, and zeroes worker globals. It finds `13` PE sections, `2` import libraries, `484` import descriptors, `0` missing thunk targets, copies `11829248` staged data bytes, zero-fills `6979584` bytes, validates XDBF `entries=67 freeTable=34`, verifies the side-effect writes, then stops before `GuestThread::Start()`.
 
-Current boundary decision: keep using the staged image view and mapped guest image span, then add only the next bounded loader mutations that are already visible in `LdrLoadModule()` after image copy: XDBF/resource pointer setup, collision zeroing, stream struct initialization, and worker globals. Verify the exact guest writes under the audit stop and still return before `GuestThread::Start()` or generated PPC code.
+Current boundary decision: the Switch pre-guest baseline now covers startup container, SD content path, VFS indexing/path resolution, XEX metadata/decrypt/staged PE/import scan, mapped guest image span, staged image materialization, and the known pre-guest loader side effects. The next decision is whether to stop Switch feature work here and pivot mainline effort to Windows runtime code, using Switch only for regression verification and small pre-guest fixes.
+
+Identified side-effect ranges before editing:
+
+- XDBF/resource wrapper source: `resourceOffset=0x83150000`, `resourceSize=0x0009BA69`; construct `g_xdbfWrapper` from translated guest memory and verify the XDBF header/table bounds.
+- Collision zero: `0x82003880..0x82003900` (`0x80` bytes), matching the existing `LdrLoadModule()` workaround.
+- Stream struct: `0x82003890..0x820038AC` (`0x1C` bytes / seven `be<uint32_t>` fields), all set to zero after the collision clear.
+- Worker globals: `0x830F5000..0x830F8000` (`0x3000` bytes), zeroed so uninitialized worker handles read as null.
 
 First guest-memory-enabled attempt result: with the full scanned image/function-table mapping retained, Ryujinx returned `0x0000D001` while mapping `image/function table guest=0x82000000 size=0x24A0000`. `Memory::base` stayed null, so the module preflight logged all planned `LdrLoadModule()` ranges but skipped touches. The next retry should explicitly set `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=0x11F0000` and `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=ON` so this stage validates only the XEX image span and does not need generated function-table insertion.
 
@@ -57,23 +64,23 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Baseline default ExeFS verification.
-   Completion standard: `LibertyRecompExeFs` builds, `readelf -dW` reports no `TEXTREL`, Ryujinx missing-content smoke reaches `Early preflight missing game executable`, and no VFS/module/guest path is entered.
+1. Re-read the latest Switch verification summary.
+   Completion standard: confirm the latest default and module-load audit Build IDs, Ryujinx logs, and no-`TEXTREL` status in this guide and the audit log.
 
-2. Identify exact next loader side-effect writes.
-   Completion standard: read the existing `LdrLoadModule()`/image setup code and list the resource/XDBF, collision, stream, and worker-global addresses and byte sizes before editing behavior.
+2. Decide the pivot boundary.
+   Completion standard: document whether Switch work should pause at pre-guest baseline or continue to another pre-guest-only blocker, without entering `GuestThread::Start()`.
 
-3. Implement the smallest side-effect audit.
-   Completion standard: keep all writes behind `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT`, reuse the already materialized guest image, write only the documented bounded ranges, verify values immediately, and return before `GuestThread::Start()`.
+3. If pivoting, prepare Windows continuation notes.
+   Completion standard: record the Windows-side entry point and known unfinished/runtime blockers without modifying unrelated Switch code.
 
-4. Verify the side-effect audit in Ryujinx with real staged layout.
-   Completion standard: `LibertyRecompExeFs` builds, no `TEXTREL`, Ryujinx log shows staged image materialization plus side-effect verification success, and the audit stops before `GuestThread::Start()`. Temporary SD hardlinks/junctions are removed and PTC is restored.
+4. If continuing Switch, choose only one pre-guest boundary.
+   Completion standard: update this guide with the exact next Switch blocker, its non-goals, and fresh verification commands before editing code.
 
-5. Restore default ExeFS and smoke-test.
-   Completion standard: default CMake cache has all Switch audit stops OFF and guest-memory audit OFF; default Ryujinx smoke returns to missing-content behavior without entering module-load preflight.
+5. Keep default ExeFS reproducible.
+   Completion standard: default CMake cache has all Switch audit stops OFF and guest-memory audit OFF before handing off or pivoting.
 
-6. Document, commit, and push.
-   Completion standard: update this guide first, then audit log/stub/layout docs as needed; sync updated switch-audit docs to `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns`; commit only scoped files; push current `codex/switch-audit-20260615` branch.
+6. Document, commit, and push any decision.
+   Completion standard: update this guide first, sync updated switch-audit docs to `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns`, commit only scoped files, and push current `codex/switch-audit-20260615` branch.
 
 ## Current Stage Verification
 
@@ -145,6 +152,18 @@ Do not touch unless a later stage explicitly scopes it:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-50-06.log`
 - Restored default result after staged materialization:
   all Switch audit stops OFF, guest-memory audit OFF, image-table override empty, no `TEXTREL`, Ryujinx reaches missing `sdmc:/switch/LibertyRecomp/game/default.xex`, no module-load preflight is entered, Ryujinx PTC stayed `false`, and Ryujinx SD `game` directory is empty.
+- Loader side-effect audit preflight Build ID:
+  `3f202d032852efd899e688cf932c0c236c2d6b24`
+- Loader side-effect audit Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-58-14.log`
+- Loader side-effect audit result:
+  with the same narrow sparse-memory profile, staged image materialization completed, XDBF resource validation reported `entries=67 freeTable=34 resourceSize=0x0009BA69`, `g_xdbfWrapper` was initialized from `0x83150000..0x831EBA69`, collision zero `0x82003880..0x82003900` was verified, stream struct `0x82003890..0x820038AC` was initialized as seven zero dwords, worker globals `0x830F5000..0x830F8000` were zeroed, and the audit stopped before `GuestThread::Start()`.
+- Restored default ExeFS Build ID after loader side-effect audit:
+  `49a1b018938f7a716d73a11ed9ff2256a19d4af6`
+- Restored default ExeFS Ryujinx smoke log after loader side-effect audit:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_04-02-06.log`
+- Restored default result after loader side-effect audit:
+  all Switch audit stops OFF, guest-memory audit OFF, image-table override empty, no `TEXTREL`, Ryujinx reaches missing `sdmc:/switch/LibertyRecomp/game/default.xex`, no module-load preflight is entered, and Ryujinx SD `game` directory is empty.
 
 ## Latest Verified Baselines
 
@@ -204,6 +223,14 @@ Do not touch unless a later stage explicitly scopes it:
   `443a3f6ce162fd464fe85728d4ba3b93a01f5dd9`
 - Latest restored default ExeFS Ryujinx log:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-50-06.log`
+- Latest Switch loader side-effect audit Build ID:
+  `3f202d032852efd899e688cf932c0c236c2d6b24`
+- Latest Switch loader side-effect audit Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-58-14.log`
+- Latest restored default ExeFS Build ID:
+  `49a1b018938f7a716d73a11ed9ff2256a19d4af6`
+- Latest restored default ExeFS Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_04-02-06.log`
 - Latest default expected behavior:
   `main entered` -> `Switch audit package startup` -> `Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex`
 
@@ -253,8 +280,8 @@ Enter the next stage only after this stage has:
 - fresh build/readelf/Ryujinx verification evidence,
 - no temporary real-content links left in Ryujinx SD,
 - Ryujinx PTC restored to its original value,
-- and a documented result for the XDBF/resource/collision/stream/worker side-effect audit, including exact ranges written and verified.
+- and a documented pivot decision: either return mainline work to Windows runtime code, or name one exact Switch pre-guest blocker to continue.
 
 ## Next Boundary Decision
 
-After XDBF/resource pointer setup and collision/stream/worker side effects are verified, the next useful boundary is deciding whether the Switch pre-guest baseline is stable enough to pivot mainline work back to Windows runtime code, leaving Switch on regression checks plus small pre-guest boundary fixes. Do not enter guest/gameplay code until the guide explicitly allows it.
+The Switch pre-guest baseline is now broad enough for a pivot decision. Recommended default: pause Switch feature work after committing this stage, keep `LibertyRecompExeFs` as the regression package, and move the mainline to Windows runtime / unfinished upstream code. Switch should only resume for regression failures, packaging/content-layout fixes, or a deliberately scoped pre-guest blocker. Do not enter guest/gameplay code until the guide explicitly allows it.

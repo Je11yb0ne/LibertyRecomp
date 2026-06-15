@@ -1922,3 +1922,84 @@ Current conclusion:
 - The preflight still does not run XDBF/resource pointer setup, real collision/stream/worker side effects, `GuestThread::Start()`, generated PPC code, or gameplay.
 - The next bounded Switch audit should verify XDBF/resource pointer setup plus the known collision/stream/worker loader mutations under the same audit stop.
 - This does not make the Switch build playable.
+
+## 2026-06-16 Update: Loader Side-Effect Preflight
+
+The module-load preflight now verifies the remaining known pre-guest `LdrLoadModule()` side effects after staged image materialization:
+
+- XDBF resource wrapper source: `0x83150000..0x831EBA69`.
+- Collision zero: `0x82003880..0x82003900`.
+- Stream struct: `0x82003890..0x820038AC`, seven zero `be<uint32_t>` fields.
+- Worker globals: `0x830F5000..0x830F8000`.
+
+The audit still does not call the full `Image::ParseImage()` path, does not allocate a full host-side decompressed image, does not start video/audio, does not call `GuestThread::Start()`, and does not run generated PPC code.
+
+Loader side-effect preflight:
+
+- Build ID:
+  `3f202d032852efd899e688cf932c0c236c2d6b24`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure highlights:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=0x11F0000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=ON`
+- `readelf -dW` reported no `TEXTREL`; dynamic flags were `NOW PIE`.
+
+Ryujinx real-layout side-effect run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-58-14.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - Temporary links were removed after the run.
+
+Important lines:
+
+```text
+[Switch] Switch module-load preflight audit: staged image materialization complete blocks=3 dataBytes=11829248 zeroBytes=6979584 imageSize=0x11F0000.
+[Switch] Switch module-load preflight audit: side-effect audit begin.
+[Switch] Switch module-load preflight audit: XDBF resource validation ok entries=67 freeTable=34 resourceSize=0x0009BA69.
+[Switch] Switch module-load preflight audit: XDBF wrapper initialized resource=0x83150000 end=0x831EBA69 size=0x0009BA69.
+[Switch] Switch module-load preflight audit: side-effect range collision zero zeroed start=0x82003880 end=0x82003900 size=0x00000080.
+[Switch] Switch module-load preflight audit: stream struct initialized start=0x82003890 size=0x0000001C fields=7.
+[Switch] Switch module-load preflight audit: side-effect range worker globals zeroed start=0x830F5000 end=0x830F8000 size=0x00003000.
+[Switch] Switch module-load preflight audit: side-effect audit complete.
+[Switch] Switch module-load preflight audit summary: staged XEX image materialization and loader side-effect audit completed; stopping before GuestThread::Start.
+```
+
+Default ExeFS rebuild after the side-effect audit changes:
+
+- Default ExeFS Build ID:
+  `49a1b018938f7a716d73a11ed9ff2256a19d4af6`
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_04-02-06.log`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE` empty
+- `readelf -dW` reported no `TEXTREL`; dynamic flags were `NOW PIE`.
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch][Memory] guest memory disabled for startup audit; base=null
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- The Switch pre-guest audit now covers startup, SD content discovery, VFS indexing/path resolution, XEX metadata/decrypt/staged PE/import scan, mapped guest image span, staged image materialization, and known pre-guest loader side effects.
+- The default package remains restored to guest-memory disabled / missing-content behavior.
+- Recommended next step is to pause Switch feature work at this pre-guest baseline and pivot mainline work back to Windows runtime / unfinished upstream code, keeping Switch for regression checks and narrowly scoped pre-guest fixes.
+- This does not make the Switch build playable.

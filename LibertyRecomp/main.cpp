@@ -1014,6 +1014,160 @@ static bool SwitchAuditMaterializeStagedImageToGuest(const SwitchAuditStagedImag
         static_cast<unsigned long long>(stagedImage.imageSize));
     return true;
 }
+
+static bool SwitchAuditValidateXdbfResource(const uint8_t* resourceData, uint32_t resourceSize)
+{
+    if (resourceData == nullptr || resourceSize <= sizeof(XDBFHeader))
+    {
+        SwitchAuditLog("Switch module-load preflight audit: XDBF resource validation failed: resource is too small.");
+        return false;
+    }
+
+    const auto* header = reinterpret_cast<const XDBFHeader*>(resourceData);
+    const uint32_t signature = static_cast<uint32_t>(header->Signature);
+    if (signature != XDBF_SIGNATURE)
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: XDBF resource validation failed: signature=0x%08X.",
+            signature);
+        return false;
+    }
+
+    const uint32_t entryCount = static_cast<uint32_t>(header->EntryCount);
+    const uint32_t freeSpaceTableLength = static_cast<uint32_t>(header->FreeSpaceTableLength);
+    if (entryCount > SIZE_MAX / sizeof(XDBFEntry) ||
+        freeSpaceTableLength > SIZE_MAX / sizeof(XDBFFreeSpaceEntry))
+    {
+        SwitchAuditLog("Switch module-load preflight audit: XDBF resource validation failed: table size overflow.");
+        return false;
+    }
+
+    const size_t entryBytes = static_cast<size_t>(entryCount) * sizeof(XDBFEntry);
+    const size_t freeBytes = static_cast<size_t>(freeSpaceTableLength) * sizeof(XDBFFreeSpaceEntry);
+    const size_t headerBytes = sizeof(XDBFHeader);
+    if (entryBytes > SIZE_MAX - headerBytes ||
+        freeBytes > SIZE_MAX - headerBytes - entryBytes ||
+        headerBytes + entryBytes + freeBytes > resourceSize)
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: XDBF resource validation failed: entries=%u free=%u resourceSize=0x%08X.",
+            entryCount,
+            freeSpaceTableLength,
+            resourceSize);
+        return false;
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: XDBF resource validation ok entries=%u freeTable=%u resourceSize=0x%08X.",
+        entryCount,
+        freeSpaceTableLength,
+        resourceSize);
+    return true;
+}
+
+static bool SwitchAuditZeroGuestRange(const char* label, uint32_t start, uint32_t size)
+{
+    uint64_t endExclusive = 0;
+    if (!SwitchAuditGuestRangeEnd(start, size, endExclusive))
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: side-effect range %s invalid start=0x%08X size=0x%08X.",
+            label,
+            start,
+            size);
+        return false;
+    }
+
+    auto* ptr = static_cast<uint8_t*>(g_memory.Translate(start));
+    memset(ptr, 0, size);
+    if (!SwitchAuditVerifyZeroFill(ptr, size))
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: side-effect range %s zero verify failed start=0x%08X size=0x%08X.",
+            label,
+            start,
+            size);
+        return false;
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: side-effect range %s zeroed start=0x%08X end=0x%llX size=0x%08X.",
+        label,
+        start,
+        static_cast<unsigned long long>(endExclusive),
+        size);
+    return true;
+}
+
+static bool SwitchAuditApplyLdrSideEffects(uint32_t resourceOffset, uint32_t resourceSize)
+{
+    if (g_memory.base == nullptr)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: side-effect audit failed: guest memory is disabled.");
+        return false;
+    }
+
+    SwitchAuditLog("Switch module-load preflight audit: side-effect audit begin.");
+
+    if (resourceOffset == 0 || resourceSize == 0)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: side-effect audit failed: XDBF resource metadata is absent.");
+        return false;
+    }
+
+    uint64_t resourceEnd = 0;
+    if (!SwitchAuditGuestRangeEnd(resourceOffset, resourceSize, resourceEnd))
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: side-effect audit failed: invalid resource range start=0x%08X size=0x%08X.",
+            resourceOffset,
+            resourceSize);
+        return false;
+    }
+
+    auto* resourceData = static_cast<uint8_t*>(g_memory.Translate(resourceOffset));
+    if (!SwitchAuditValidateXdbfResource(resourceData, resourceSize))
+        return false;
+
+    g_xdbfWrapper = XDBFWrapper(resourceData, resourceSize);
+    if (g_xdbfWrapper.pBuffer != resourceData)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: side-effect audit failed: XDBFWrapper rejected resource.");
+        return false;
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: XDBF wrapper initialized resource=0x%08X end=0x%llX size=0x%08X.",
+        resourceOffset,
+        static_cast<unsigned long long>(resourceEnd),
+        resourceSize);
+
+    if (!SwitchAuditZeroGuestRange("collision zero", 0x82003880, 0x80))
+        return false;
+
+    auto* streamPtr = reinterpret_cast<be<uint32_t>*>(g_memory.Translate(0x82003890));
+    for (size_t i = 0; i < 7; i++)
+        streamPtr[i] = 0;
+
+    for (size_t i = 0; i < 7; i++)
+    {
+        if (static_cast<uint32_t>(streamPtr[i]) != 0)
+        {
+            SwitchAuditLogf(
+                "Switch module-load preflight audit: stream struct verify failed index=%llu.",
+                static_cast<unsigned long long>(i));
+            return false;
+        }
+    }
+
+    SwitchAuditLog("Switch module-load preflight audit: stream struct initialized start=0x82003890 size=0x0000001C fields=7.");
+
+    if (!SwitchAuditZeroGuestRange("worker globals", 0x830F5000, 0x3000))
+        return false;
+
+    SwitchAuditLog("Switch module-load preflight audit: side-effect audit complete.");
+    return true;
+}
 #endif
 
 void HostStartup()
@@ -1799,13 +1953,28 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        SwitchAuditLog("Switch module-load preflight audit summary: staged XEX image materialization completed; stopping before XDBF setup, LdrLoadModule side effects, and GuestThread::Start.");
+        const bool sideEffectsOk = SwitchAuditApplyLdrSideEffects(resourceOffset, resourceSize);
+        if (!sideEffectsOk)
+        {
+            SwitchAuditLog("Switch module-load preflight audit summary: loader side-effect audit failed; stopping before GuestThread::Start.");
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module side effects failed",
+                "default.xex loader side-effect audit failed.\n"
+                "GuestThread::Start and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
+        SwitchAuditLog("Switch module-load preflight audit summary: staged XEX image materialization and loader side-effect audit completed; stopping before GuestThread::Start.");
 
         const std::string modulePathText = modulePath.string();
         LibertySwitchShowAuditDiagnostic(
             "Module preflight",
-            "default.xex staged image materialization completed.\n"
-            "XDBF setup, real loader side effects, and guest code were skipped.",
+            "default.xex materialization and side-effect audit completed.\n"
+            "GuestThread::Start and guest code were skipped.",
             modulePathText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
