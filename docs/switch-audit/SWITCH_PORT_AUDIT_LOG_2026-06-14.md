@@ -1304,3 +1304,107 @@ Current conclusion:
 - Recursive VFS indexing and `BuildPathCache` remain the next filesystem blockers before module-loading preflight.
 - Host startup, module loading, video/audio setup, and guest code are still skipped.
 - This does not make the Switch build playable.
+
+## 2026-06-15 Update: Recursive VFS Index Hardening
+
+The VFS preflight audit was extended to exercise both recursive filesystem scans:
+
+- `BuildPathCache(gameRoot)`
+- `VFS::Initialize(gameRoot)` with the normal recursive index enabled
+
+Root-cause finding:
+
+- `BuildPathCache()` was changed to use non-throwing `std::filesystem::recursive_directory_iterator` construction and `increment(ec)`.
+- After that change, Ryujinx reached `BuildPathCache returned entries=200`.
+- The remaining exit happened during `VFS::RebuildIndex()`.
+- Fine-grained VFS breadcrumbs showed the failing point exactly:
+  - `is_directory()` returned false for `xbox360/data/maps/interiors/generic/bars_1.img`.
+  - `is_regular_file()` returned true.
+  - The last log line was before `entry.file_size(ec)`.
+  - No after-`file_size` breadcrumb or index-complete line appeared.
+
+Fix direction:
+
+- Switch VFS recursive indexing now skips `std::filesystem::file_size()` total-byte accounting.
+- The path index still records normalized paths, file count, and directory count.
+- `totalBytes` remains `0` for this Switch audit path.
+- This is acceptable for path lookup auditing because VFS resolution does not require the aggregate byte count.
+- Final runtime file-size/stat behavior still needs a broader Switch filesystem policy.
+
+VFS recursive-index preflight ExeFS:
+
+- Build ID:
+  `9270023bb67df2533a5686d991efa7ad3e9933ed`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+
+Ryujinx real-layout VFS recursive-index run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_19-00-43.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - No fake top-level `audio` directory.
+  - Temporary links were removed after the run.
+
+Important lines:
+
+```text
+[Switch] Switch VFS preflight audit: BuildPathCache returned entries=200
+[Switch][VFS] RebuildIndex indexed entries=50
+[Switch][VFS] RebuildIndex indexed entries=100
+[Switch][VFS] RebuildIndex indexed entries=150
+[Switch][VFS] RebuildIndex indexed entries=200
+[Switch][VFS] RebuildIndex complete entries=200 files=169 dirs=31
+[Switch] Switch VFS preflight audit: VFS::Initialize returned.
+[Switch] Switch VFS preflight audit: VFS stats files=169 dirs=31 bytes=0
+[Switch] Switch VFS preflight audit: common script image resolved: sdmc:/switch/LibertyRecomp/game/common/data/cdimages/script.img
+[Switch] Switch VFS preflight audit: VFS common script image resolved: sdmc:/switch/LibertyRecomp/game/common/data/cdimages/script.img
+[Switch] Switch VFS preflight audit: platform vehicles image resolved: sdmc:/switch/LibertyRecomp/game/xbox360/models/cdimages/vehicles.img
+[Switch] Switch VFS preflight audit: VFS platform vehicles image resolved: sdmc:/switch/LibertyRecomp/game/xbox360/models/cdimages/vehicles.img
+[Switch] Switch VFS preflight audit: audio resident pack resolved: sdmc:/switch/LibertyRecomp/game/xbox360/audio/sfx/resident.rpf
+[Switch] Switch VFS preflight audit: VFS audio resident pack resolved: sdmc:/switch/LibertyRecomp/game/xbox360/audio/sfx/resident.rpf
+[Switch] Switch VFS preflight audit summary: representative paths resolved; stopping before host startup, module loading, and guest code.
+```
+
+Default ExeFS rebuild after the VFS index hardening changes:
+
+- Default ExeFS Build ID:
+  `b6e5b56b55b38e03994464386eda9f99ab6cfd19`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_19-03-27.log`
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- `BuildPathCache()` and recursive VFS indexing now complete on the staged real GTA IV layout in Ryujinx.
+- The expected real layout remains `game/default.xex`, `game/common`, `game/xbox360`, and `game/xbox360/audio` when top-level `game/audio` is absent.
+- The next practical Switch audit step is a module-load preflight that still stops before guest code until Switch guest memory/page backing is ready.
+- Host startup, module loading, video/audio setup, and guest code are still skipped.
+- This does not make the Switch build playable.

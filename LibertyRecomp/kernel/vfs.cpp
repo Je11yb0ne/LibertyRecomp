@@ -2,6 +2,21 @@
 #include <os/logger.h>
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+
+#ifdef __SWITCH__
+extern "C" uint32_t svcOutputDebugString(const char* str, uint64_t size);
+
+static void VfsSwitchAuditLog(const std::string& message)
+{
+    std::string line = "[Switch][VFS] " + message + "\n";
+    svcOutputDebugString(line.c_str(), static_cast<uint64_t>(line.size()));
+}
+#else
+static void VfsSwitchAuditLog(const std::string&)
+{
+}
+#endif
 
 namespace VFS
 {
@@ -325,47 +340,92 @@ namespace VFS
     {
         // Note: caller (Initialize) already holds g_mutex, don't lock again
         // std::lock_guard<std::mutex> lock(g_mutex);
-        
+
+        VfsSwitchAuditLog("RebuildIndex begin");
         g_fileIndex.clear();
         g_stats = Stats{};
-        
+
         if (!g_initialized || g_extractedRoot.empty())
         {
+            VfsSwitchAuditLog("RebuildIndex skipped: VFS not initialized or root empty");
             return;
         }
-        
+
         std::error_code ec;
         if (!std::filesystem::exists(g_extractedRoot, ec))
         {
             LOGF_WARNING("[VFS] Extracted root does not exist: {}", g_extractedRoot.string());
+            VfsSwitchAuditLog("RebuildIndex root missing: " + g_extractedRoot.string());
             return;
         }
-        
-        // Recursively scan the extracted directory
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(g_extractedRoot, ec))
+
+        // Recursively scan the extracted directory without throwing through
+        // libgcc unwinding paths on Switch.
+        const auto options = std::filesystem::directory_options::skip_permission_denied;
+        std::filesystem::recursive_directory_iterator it(g_extractedRoot, options, ec);
+        std::filesystem::recursive_directory_iterator end;
+        if (ec)
         {
-            if (ec)
-            {
-                continue;
-            }
-            
+            LOGF_WARNING("[VFS] Failed to start index scan for {}: {}", g_extractedRoot.string(), ec.message());
+            VfsSwitchAuditLog("RebuildIndex iterator start failed: " + ec.message());
+            return;
+        }
+
+        size_t entriesSeen = 0;
+        while (it != end)
+        {
+            const std::filesystem::directory_entry& entry = *it;
+
             // Get relative path from extracted root
             std::filesystem::path relativePath = entry.path().lexically_relative(g_extractedRoot);
             std::string normalizedKey = NormalizePath(relativePath.string());
-            
+            entriesSeen++;
+            if ((entriesSeen % 50) == 0)
+                VfsSwitchAuditLog("RebuildIndex indexed entries=" + std::to_string(entriesSeen));
+
+            ec.clear();
             if (entry.is_directory(ec))
             {
                 g_stats.totalDirectories++;
             }
-            else if (entry.is_regular_file(ec))
+            else
             {
-                g_stats.totalFiles++;
-                g_stats.totalBytes += entry.file_size(ec);
+                ec.clear();
+                if (entry.is_regular_file(ec))
+                {
+                    g_stats.totalFiles++;
+
+#ifndef __SWITCH__
+                    ec.clear();
+                    const uint64_t fileSize = entry.file_size(ec);
+                    if (!ec)
+                        g_stats.totalBytes += fileSize;
+#else
+                    // Switch audit builds only need the path index here.
+                    // Ryujinx/libnx can abort in std::filesystem::file_size()
+                    // while scanning SD content; size accounting is nonessential.
+                    ec.clear();
+#endif
+                }
             }
-            
+
             // Add to index
             g_fileIndex[normalizedKey] = entry.path();
+
+            ec.clear();
+            it.increment(ec);
+            if (ec)
+            {
+                LOGF_WARNING("[VFS] Index scan skipped an entry under {}: {}", g_extractedRoot.string(), ec.message());
+                VfsSwitchAuditLog("RebuildIndex increment skipped entry: " + ec.message());
+                ec.clear();
+            }
         }
+
+        VfsSwitchAuditLog(
+            "RebuildIndex complete entries=" + std::to_string(entriesSeen) +
+            " files=" + std::to_string(g_stats.totalFiles) +
+            " dirs=" + std::to_string(g_stats.totalDirectories));
     }
     
     Stats GetStats()

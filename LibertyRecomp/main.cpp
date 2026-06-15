@@ -684,14 +684,23 @@ int main(int argc, char *argv[])
         const std::string platformPath = (const char*)xbox360Root.u8string().c_str();
         const std::string audioPath = (const char*)audioRoot.u8string().c_str();
 
-        SwitchAuditLog("Switch VFS preflight audit: skipping BuildPathCache; testing direct roots and VFS only.");
+        SwitchAuditLog("Switch VFS preflight audit: building path cache.");
+        const size_t pathCacheEntries = BuildPathCache(gameRoot.string());
+        char pathCacheMessage[128];
+        snprintf(
+            pathCacheMessage,
+            sizeof(pathCacheMessage),
+            "Switch VFS preflight audit: BuildPathCache returned entries=%llu",
+            static_cast<unsigned long long>(pathCacheEntries));
+        SwitchAuditLog(pathCacheMessage);
+
         SwitchAuditLog("Switch VFS preflight audit: registering XAM roots.");
         XamRootCreate("common", commonPath);
         XamRootCreate("platform", platformPath);
         XamRootCreate("xbox360", platformPath);
         XamRootCreate("audio", audioPath);
-        SwitchAuditLog("Switch VFS preflight audit: XAM roots registered; initializing VFS.");
-        VFS::Initialize(gameRoot, false);
+        SwitchAuditLog("Switch VFS preflight audit: XAM roots registered; initializing VFS with index scan.");
+        VFS::Initialize(gameRoot);
         SwitchAuditLog("Switch VFS preflight audit: VFS::Initialize returned.");
 
         const VFS::Stats stats = VFS::GetStats();

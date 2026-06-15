@@ -50,12 +50,32 @@ static std::string toLower(std::string str) {
     return str;
 };
 
-inline void BuildPathCache(const std::string& gamePath) {
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(gamePath)) {
+inline size_t BuildPathCache(const std::string& gamePath) {
+    std::error_code ec;
+    const auto options = std::filesystem::directory_options::skip_permission_denied;
+    std::filesystem::recursive_directory_iterator it(gamePath, options, ec);
+    std::filesystem::recursive_directory_iterator end;
+
+    if (ec) {
+        return 0;
+    }
+
+    size_t entriesAdded = 0;
+    while (it != end) {
+        const std::filesystem::directory_entry& entry = *it;
         std::string fullPath = entry.path().string();
         std::string key = toLower(fullPath);
         g_pathCache[key] = entry.path();
+        entriesAdded++;
+
+        ec.clear();
+        it.increment(ec);
+        if (ec) {
+            ec.clear();
+        }
     }
+
+    return entriesAdded;
 }
 
 inline std::filesystem::path FindInPathCache(const std::string& targetPath) {
