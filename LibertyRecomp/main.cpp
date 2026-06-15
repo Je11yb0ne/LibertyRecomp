@@ -744,6 +744,124 @@ Heap g_userHeap;
 XDBFWrapper g_xdbfWrapper;
 std::unordered_map<uint16_t, GuestTexture*> g_xdbfTextureCache;
 
+#if defined(__SWITCH__) && defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT)
+static bool SwitchAuditGuestRangeEnd(uint32_t start, uint32_t size, uint64_t& endExclusive) noexcept
+{
+    if (size == 0)
+        return false;
+
+    const uint64_t end = static_cast<uint64_t>(start) + static_cast<uint64_t>(size);
+    if (end > PPC_MEMORY_SIZE)
+        return false;
+
+    endExclusive = end;
+    return true;
+}
+
+static bool SwitchAuditTouchGuestAddress(const char* label, const char* point, uint32_t address)
+{
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: touching guest range %s %s addr=0x%08X.",
+        label,
+        point,
+        address);
+
+    auto* ptr = static_cast<volatile uint8_t*>(g_memory.Translate(address));
+    const uint8_t original = *ptr;
+    const uint8_t probe = static_cast<uint8_t>(original ^ 0xA5u);
+    *ptr = probe;
+    const uint8_t observed = *ptr;
+    *ptr = original;
+
+    if (observed != probe)
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: guest range %s %s touch verify failed addr=0x%08X expected=0x%02X observed=0x%02X.",
+            label,
+            point,
+            address,
+            static_cast<unsigned>(probe),
+            static_cast<unsigned>(observed));
+        return false;
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: guest range %s %s touch ok addr=0x%08X.",
+        label,
+        point,
+        address);
+    return true;
+}
+
+static bool SwitchAuditProbeGuestRange(const char* label, uint32_t start, uint32_t size)
+{
+    uint64_t endExclusive = 0;
+    if (!SwitchAuditGuestRangeEnd(start, size, endExclusive))
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: guest range %s invalid start=0x%08X size=0x%08X.",
+            label,
+            start,
+            size);
+        return false;
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: guest range %s planned start=0x%08X end=0x%llX size=0x%08X.",
+        label,
+        start,
+        static_cast<unsigned long long>(endExclusive),
+        size);
+
+    if (g_memory.base == nullptr)
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: guest range %s touch skipped because guest memory is disabled.",
+            label);
+        return true;
+    }
+
+    if (!SwitchAuditTouchGuestAddress(label, "begin", start))
+        return false;
+
+    const uint32_t lastAddress = static_cast<uint32_t>(endExclusive - 1);
+    if (lastAddress != start && !SwitchAuditTouchGuestAddress(label, "end", lastAddress))
+        return false;
+
+    return true;
+}
+
+static bool SwitchAuditProbeLdrGuestRanges(
+    uint32_t imageBase,
+    uint32_t imageSize,
+    uint32_t resourceOffset,
+    uint32_t resourceSize)
+{
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: guest memory base=%p.",
+        static_cast<void*>(g_memory.base));
+
+    bool ok = true;
+    ok = SwitchAuditProbeGuestRange("image copy", imageBase, imageSize) && ok;
+
+    if (resourceOffset != 0 && resourceSize != 0)
+        ok = SwitchAuditProbeGuestRange("resource", resourceOffset, resourceSize) && ok;
+    else
+        SwitchAuditLog("Switch module-load preflight audit: resource range skipped because metadata is absent.");
+
+    ok = SwitchAuditProbeGuestRange("collision zero", 0x82003880, 0x80) && ok;
+    ok = SwitchAuditProbeGuestRange("stream struct", 0x82003890, 0x1C) && ok;
+    ok = SwitchAuditProbeGuestRange("worker globals", 0x830F5000, 0x3000) && ok;
+
+    if (ok)
+        SwitchAuditLog("Switch module-load preflight audit: guest range translate/touch probe complete.");
+    else
+        SwitchAuditLog("Switch module-load preflight audit: guest range translate/touch probe failed.");
+
+    return ok;
+}
+#endif
+
 void HostStartup()
 {
 #ifdef _WIN32
@@ -1492,13 +1610,32 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        const bool guestRangeProbeOk = SwitchAuditProbeLdrGuestRanges(
+            imageBase,
+            static_cast<uint32_t>(securityInfo->imageSize),
+            resourceOffset,
+            resourceSize);
+        if (!guestRangeProbeOk)
+        {
+            SwitchAuditLog("Switch module-load preflight audit summary: guest-memory range probe failed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.");
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module memory preflight failed",
+                "default.xex guest-memory range probe failed.\n"
+                "Image::ParseImage, real module writes, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
         SwitchAuditLog("Switch module-load preflight audit summary: XEX full-parse phase probe completed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.");
 
         const std::string modulePathText = modulePath.string();
         LibertySwitchShowAuditDiagnostic(
             "Module preflight",
-            "default.xex full-parse phase probe completed.\n"
-            "Image::ParseImage, guest-memory writes, and guest code were skipped.",
+            "default.xex full-parse and guest range probes completed.\n"
+            "Image::ParseImage, real module writes, and guest code were skipped.",
             modulePathText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);

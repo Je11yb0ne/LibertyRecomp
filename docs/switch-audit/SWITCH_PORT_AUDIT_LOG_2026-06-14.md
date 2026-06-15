@@ -1724,3 +1724,114 @@ Current conclusion:
 - The next boundary is guest-memory/page-backing preparation for bounded `LdrLoadModule()` image/resource writes.
 - Do not start `GuestThread` or generated PPC code until that boundary is explicitly prepared and verified.
 - This does not make the Switch build playable.
+
+## 2026-06-16 Update: Module Image Guest-Range Preflight
+
+The module-load preflight now includes a bounded guest-memory range probe in `LibertyRecomp/main.cpp`.
+
+This probe still does not call `Image::ParseImage()` and still does not run real `LdrLoadModule()` image copy. After the staged XEX decrypt/decompression/import scan succeeds, it logs the exact guest ranges that the next real loader step would use:
+
+- image copy: `0x82000000..0x831F0000`
+- resource pointer: `0x83150000..0x831EBA69`
+- collision zero: `0x82003880..0x82003900`
+- stream struct: `0x82003890..0x820038AC`
+- worker globals: `0x830F5000..0x830F8000`
+
+The probe touches only the first and last byte of each range with save/restore semantics when sparse guest memory is enabled. It stops before full `Image::ParseImage()`, real `LdrLoadModule()` writes, `GuestThread::Start()`, or generated PPC code.
+
+Fresh default baseline before this stage:
+
+- Default ExeFS Build ID:
+  `cd76cff9c8760ec90f83b5933f812e0d42fbe60e`
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-51-09.log`
+- Result:
+  - Reached `main()`.
+  - Guest memory remained disabled.
+  - Stopped at missing `sdmc:/switch/LibertyRecomp/game/default.xex`.
+  - Did not enter VFS, module-load preflight, or guest code.
+  - `readelf -dW` reported no `TEXTREL`.
+
+First guest-memory-enabled attempt:
+
+- Build ID:
+  `76b9796c512cae9b6b0a62b335188dc8711e632b`
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-58-04.log`
+- Configure highlights:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - generated function mappings retained
+  - full scanned image/function-table mapping retained
+- Result:
+  - `low guest heap`, `XMA I/O window`, and `0xF00000` physical heap mapped.
+  - `image/function table guest=0x82000000 size=0x24A0000` failed with `0x0000D001`.
+  - `Memory::base` stayed null.
+  - Module preflight still reached staged decrypt/PE/import scan and logged all planned guest ranges, but touches were skipped because guest memory was disabled.
+
+Narrow module-image guest-range preflight:
+
+- Build ID:
+  `41db7ed33ecfe3d7b2060bb365900742329c2e83`
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_00-11-49.log`
+- Configure highlights:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=0x11F0000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=ON`
+- `readelf -dW` reported no `TEXTREL`.
+
+Important lines:
+
+```text
+[Switch][Memory] map begin image/function table guest=0x82000000 size=0x11F0000
+[Switch][Memory] map ok image/function table
+[Switch][Memory] allocate success
+[Switch][Memory] audit build; skipping function mappings
+[Switch] Switch module-load preflight audit: guest memory base=0x80000000.
+[Switch] Switch module-load preflight audit: guest range image copy begin touch ok addr=0x82000000.
+[Switch] Switch module-load preflight audit: guest range image copy end touch ok addr=0x831EFFFF.
+[Switch] Switch module-load preflight audit: guest range resource begin touch ok addr=0x83150000.
+[Switch] Switch module-load preflight audit: guest range resource end touch ok addr=0x831EBA68.
+[Switch] Switch module-load preflight audit: guest range collision zero begin touch ok addr=0x82003880.
+[Switch] Switch module-load preflight audit: guest range collision zero end touch ok addr=0x820038FF.
+[Switch] Switch module-load preflight audit: guest range stream struct begin touch ok addr=0x82003890.
+[Switch] Switch module-load preflight audit: guest range stream struct end touch ok addr=0x820038AB.
+[Switch] Switch module-load preflight audit: guest range worker globals begin touch ok addr=0x830F5000.
+[Switch] Switch module-load preflight audit: guest range worker globals end touch ok addr=0x830F7FFF.
+[Switch] Switch module-load preflight audit: guest range translate/touch probe complete.
+[Switch] Switch module-load preflight audit summary: XEX full-parse phase probe completed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.
+```
+
+Default ExeFS rebuild after the guest-range source changes:
+
+- Default ExeFS Build ID:
+  `eff804d37589df5723b7f334f612047e5215dabe`
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_00-15-18.log`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- The Switch audit can now prove the specific `LdrLoadModule()` image/resource/collision/stream/worker ranges are backed and writable under a narrow sparse-memory profile.
+- The full scanned image/function-table mapping remains too large for this module preflight profile in Ryujinx when paired with the current physical heap mapping.
+- The next boundary should decide whether to materialize the staged XEX image directly into the mapped guest image span, still under an audit stop and still before `GuestThread::Start()`.
+- This does not make the Switch build playable.
