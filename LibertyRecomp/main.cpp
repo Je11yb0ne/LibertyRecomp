@@ -308,6 +308,15 @@ struct SwitchAuditBasicBlockRange
     size_t zeroSize;
 };
 
+struct SwitchAuditStagedImageView
+{
+    const uint8_t* srcData{};
+    size_t sourceSize{};
+    size_t imageSize{};
+    uint32_t imageBase{};
+    std::vector<SwitchAuditBasicBlockRange> blocks{};
+};
+
 static bool SwitchAuditRangeWithin(size_t totalSize, size_t offset, size_t length)
 {
     return offset <= totalSize && length <= totalSize - offset;
@@ -400,7 +409,37 @@ static bool SwitchAuditFindImageOffset(
     return false;
 }
 
-static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
+static bool SwitchAuditPublishStagedImageView(
+    SwitchAuditStagedImageView* stagedImage,
+    const uint8_t* srcData,
+    size_t sourceSize,
+    size_t imageSize,
+    uint32_t imageBase,
+    const std::vector<SwitchAuditBasicBlockRange>& imageBlocks)
+{
+    if (stagedImage == nullptr)
+        return true;
+
+    if (srcData == nullptr || imageSize == 0 || imageBlocks.empty() || imageSize > UINT32_MAX)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: staged image publish failed: invalid staged view.");
+        return false;
+    }
+
+    stagedImage->srcData = srcData;
+    stagedImage->sourceSize = sourceSize;
+    stagedImage->imageSize = imageSize;
+    stagedImage->imageBase = imageBase;
+    stagedImage->blocks = imageBlocks;
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: staged image view published base=0x%08X size=0x%llX blocks=%llu.",
+        imageBase,
+        static_cast<unsigned long long>(imageSize),
+        static_cast<unsigned long long>(imageBlocks.size()));
+    return true;
+}
+
+static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize, SwitchAuditStagedImageView* stagedImage)
 {
     SwitchAuditLog("Switch module-load preflight audit: full-parse phase probe begin.");
 
@@ -625,7 +664,7 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
     if (imports == nullptr)
     {
         SwitchAuditLog("Switch module-load preflight audit: import thunk scan phase skipped: no import header.");
-        return true;
+        return SwitchAuditPublishStagedImageView(stagedImage, srcData, payloadSize, imageSize, imageBase, imageBlocks);
     }
 
     const size_t importsOffset = reinterpret_cast<const uint8_t*>(imports) - data;
@@ -721,7 +760,7 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
         static_cast<unsigned long long>(totalThunkDescriptors),
         static_cast<unsigned long long>(missingThunkTargets));
 
-    return true;
+    return SwitchAuditPublishStagedImageView(stagedImage, srcData, payloadSize, imageSize, imageBase, imageBlocks);
 }
 #endif
 #endif
@@ -859,6 +898,121 @@ static bool SwitchAuditProbeLdrGuestRanges(
         SwitchAuditLog("Switch module-load preflight audit: guest range translate/touch probe failed.");
 
     return ok;
+}
+
+static bool SwitchAuditVerifyZeroFill(const uint8_t* data, size_t size)
+{
+    for (size_t i = 0; i < size; i++)
+    {
+        if (data[i] != 0)
+            return false;
+    }
+
+    return true;
+}
+
+static bool SwitchAuditMaterializeStagedImageToGuest(const SwitchAuditStagedImageView& stagedImage)
+{
+    if (stagedImage.srcData == nullptr || stagedImage.sourceSize == 0 || stagedImage.imageSize == 0 ||
+        stagedImage.imageSize > UINT32_MAX || stagedImage.blocks.empty())
+    {
+        SwitchAuditLog("Switch module-load preflight audit: staged image materialization failed: invalid staged view.");
+        return false;
+    }
+
+    if (g_memory.base == nullptr)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: staged image materialization failed: guest memory is disabled.");
+        return false;
+    }
+
+    uint64_t imageEnd = 0;
+    if (!SwitchAuditGuestRangeEnd(stagedImage.imageBase, static_cast<uint32_t>(stagedImage.imageSize), imageEnd))
+    {
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: staged image materialization failed: invalid image span base=0x%08X size=0x%llX.",
+            stagedImage.imageBase,
+            static_cast<unsigned long long>(stagedImage.imageSize));
+        return false;
+    }
+
+    auto* imageDest = static_cast<uint8_t*>(g_memory.Translate(stagedImage.imageBase));
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: staged image materialization begin base=0x%08X end=0x%llX size=0x%llX blocks=%llu.",
+        stagedImage.imageBase,
+        static_cast<unsigned long long>(imageEnd),
+        static_cast<unsigned long long>(stagedImage.imageSize),
+        static_cast<unsigned long long>(stagedImage.blocks.size()));
+
+    size_t dataBytes = 0;
+    size_t zeroBytes = 0;
+    for (size_t i = 0; i < stagedImage.blocks.size(); i++)
+    {
+        const SwitchAuditBasicBlockRange& block = stagedImage.blocks[i];
+        if (block.zeroSize > SIZE_MAX - block.dataSize)
+        {
+            SwitchAuditLogf("Switch module-load preflight audit: staged image materialization failed: block %llu size overflow.", static_cast<unsigned long long>(i));
+            return false;
+        }
+
+        const size_t blockSize = block.dataSize + block.zeroSize;
+        if (!SwitchAuditRangeWithin(stagedImage.imageSize, block.imageOffset, blockSize) ||
+            !SwitchAuditRangeWithin(stagedImage.sourceSize, block.sourceOffset, block.dataSize))
+        {
+            SwitchAuditLogf(
+                "Switch module-load preflight audit: staged image materialization failed: block %llu out of range imageOffset=0x%llX sourceOffset=0x%llX data=0x%llX zero=0x%llX.",
+                static_cast<unsigned long long>(i),
+                static_cast<unsigned long long>(block.imageOffset),
+                static_cast<unsigned long long>(block.sourceOffset),
+                static_cast<unsigned long long>(block.dataSize),
+                static_cast<unsigned long long>(block.zeroSize));
+            return false;
+        }
+
+        uint8_t* const blockDest = imageDest + block.imageOffset;
+        const uint8_t* const blockSource = stagedImage.srcData + block.sourceOffset;
+        SwitchAuditLogf(
+            "Switch module-load preflight audit: staged image materialization block %llu imageOffset=0x%llX data=0x%llX zero=0x%llX.",
+            static_cast<unsigned long long>(i),
+            static_cast<unsigned long long>(block.imageOffset),
+            static_cast<unsigned long long>(block.dataSize),
+            static_cast<unsigned long long>(block.zeroSize));
+
+        if (block.dataSize != 0)
+        {
+            memcpy(blockDest, blockSource, block.dataSize);
+            if (memcmp(blockDest, blockSource, block.dataSize) != 0)
+            {
+                SwitchAuditLogf(
+                    "Switch module-load preflight audit: staged image materialization failed: block %llu data verify mismatch.",
+                    static_cast<unsigned long long>(i));
+                return false;
+            }
+            dataBytes += block.dataSize;
+        }
+
+        if (block.zeroSize != 0)
+        {
+            uint8_t* const zeroDest = blockDest + block.dataSize;
+            memset(zeroDest, 0, block.zeroSize);
+            if (!SwitchAuditVerifyZeroFill(zeroDest, block.zeroSize))
+            {
+                SwitchAuditLogf(
+                    "Switch module-load preflight audit: staged image materialization failed: block %llu zero-fill verify mismatch.",
+                    static_cast<unsigned long long>(i));
+                return false;
+            }
+            zeroBytes += block.zeroSize;
+        }
+    }
+
+    SwitchAuditLogf(
+        "Switch module-load preflight audit: staged image materialization complete blocks=%llu dataBytes=%llu zeroBytes=%llu imageSize=0x%llX.",
+        static_cast<unsigned long long>(stagedImage.blocks.size()),
+        static_cast<unsigned long long>(dataBytes),
+        static_cast<unsigned long long>(zeroBytes),
+        static_cast<unsigned long long>(stagedImage.imageSize));
+    return true;
 }
 #endif
 
@@ -1595,7 +1749,8 @@ int main(int argc, char *argv[])
             static_cast<uint32_t>(securityInfo->pageDescriptorCount));
         SwitchAuditLog(imageMessage);
 
-        const bool parseProbeOk = SwitchAuditProbeXexFullParsePhases(loadResult.data(), loadResult.size());
+        SwitchAuditStagedImageView stagedImage{};
+        const bool parseProbeOk = SwitchAuditProbeXexFullParsePhases(loadResult.data(), loadResult.size(), &stagedImage);
         if (!parseProbeOk)
         {
             SwitchAuditLog("Switch module-load preflight audit summary: XEX full-parse phase probe failed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.");
@@ -1629,13 +1784,28 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        SwitchAuditLog("Switch module-load preflight audit summary: XEX full-parse phase probe completed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.");
+        const bool materializeOk = SwitchAuditMaterializeStagedImageToGuest(stagedImage);
+        if (!materializeOk)
+        {
+            SwitchAuditLog("Switch module-load preflight audit summary: staged image materialization failed; stopping before XDBF setup, LdrLoadModule side effects, and GuestThread::Start.");
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module materialization failed",
+                "default.xex staged image materialization failed.\n"
+                "XDBF setup, real loader side effects, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
+        SwitchAuditLog("Switch module-load preflight audit summary: staged XEX image materialization completed; stopping before XDBF setup, LdrLoadModule side effects, and GuestThread::Start.");
 
         const std::string modulePathText = modulePath.string();
         LibertySwitchShowAuditDiagnostic(
             "Module preflight",
-            "default.xex full-parse and guest range probes completed.\n"
-            "Image::ParseImage, real module writes, and guest code were skipped.",
+            "default.xex staged image materialization completed.\n"
+            "XDBF setup, real loader side effects, and guest code were skipped.",
             modulePathText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);

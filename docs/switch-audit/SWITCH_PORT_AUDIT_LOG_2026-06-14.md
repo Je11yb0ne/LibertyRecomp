@@ -1835,3 +1835,90 @@ Current conclusion:
 - The full scanned image/function-table mapping remains too large for this module preflight profile in Ryujinx when paired with the current physical heap mapping.
 - The next boundary should decide whether to materialize the staged XEX image directly into the mapped guest image span, still under an audit stop and still before `GuestThread::Start()`.
 - This does not make the Switch build playable.
+
+## 2026-06-16 Update: Staged XEX Image Materialization
+
+The module-load preflight now carries the Switch-local staged XEX image view out of the decrypt/PE/import probe and materializes that staged image directly into mapped Switch guest memory.
+
+This keeps the audit inside `LibertyRecomp/main.cpp` and still avoids the full `0x11F0000` host-side decompressed-image allocation. The new boundary:
+
+- decrypts the XEX payload in place inside the `LoadFile()` buffer,
+- scans the staged PE/import view as before,
+- publishes the staged block table,
+- touch-probes the planned image/resource/collision/stream/worker guest ranges,
+- copies each staged XEX block directly into `0x82000000..0x831F0000`,
+- verifies copied data with `memcmp()`,
+- zero-fills and verifies zero spans,
+- then stops before XDBF/resource pointer setup, real loader side effects, `GuestThread::Start()`, or generated PPC code.
+
+Staged image materialization preflight:
+
+- Build ID:
+  `e2d0ffd8cd633884d4e80e2d71ba0edd9cfaa7c5`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure highlights:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=0x11F0000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=ON`
+- `readelf -dW` reported no `TEXTREL`; dynamic flags were `NOW PIE`.
+
+Ryujinx real-layout materialization run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-45-38.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - Temporary links were removed after the run.
+  - Ryujinx portable `enable_ptc` was already `false` and was not changed.
+
+Important lines:
+
+```text
+[Switch][Memory] map begin image/function table guest=0x82000000 size=0x11F0000
+[Switch][Memory] map ok image/function table
+[Switch] Switch module-load preflight audit: staged image view published base=0x82000000 size=0x11F0000 blocks=3.
+[Switch] Switch module-load preflight audit: guest range translate/touch probe complete.
+[Switch] Switch module-load preflight audit: staged image materialization begin base=0x82000000 end=0x831F0000 size=0x11F0000 blocks=3.
+[Switch] Switch module-load preflight audit: staged image materialization block 0 imageOffset=0x0 data=0xA18000 zero=0x8000.
+[Switch] Switch module-load preflight audit: staged image materialization block 1 imageOffset=0xA20000 data=0x88000 zero=0x6A0000.
+[Switch] Switch module-load preflight audit: staged image materialization block 2 imageOffset=0x1148000 data=0xA8000 zero=0x0.
+[Switch] Switch module-load preflight audit: staged image materialization complete blocks=3 dataBytes=11829248 zeroBytes=6979584 imageSize=0x11F0000.
+[Switch] Switch module-load preflight audit summary: staged XEX image materialization completed; stopping before XDBF setup, LdrLoadModule side effects, and GuestThread::Start.
+```
+
+Default ExeFS rebuild after the staged materialization changes:
+
+- Default ExeFS Build ID:
+  `443a3f6ce162fd464fe85728d4ba3b93a01f5dd9`
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-16_03-50-06.log`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE` empty
+- `readelf -dW` reported no `TEXTREL`; dynamic flags were `NOW PIE`.
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch][Memory] guest memory disabled for startup audit; base=null
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- The Switch audit can now materialize the real staged `default.xex` image into the narrow mapped guest image span without a full host-side decompressed image allocation.
+- The preflight still does not run XDBF/resource pointer setup, real collision/stream/worker side effects, `GuestThread::Start()`, generated PPC code, or gameplay.
+- The next bounded Switch audit should verify XDBF/resource pointer setup plus the known collision/stream/worker loader mutations under the same audit stop.
+- This does not make the Switch build playable.
