@@ -716,3 +716,53 @@ Default build revalidation after the 2026-06-15 function-table fix:
 - Ryujinx default ExeFS smoke log:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_03-23-35.log`
 - Default ExeFS still reports `guest memory disabled for startup audit; base=null`, reaches `main()`, skips RomFS in ExeFS/NSO mode, appends the SD log, and stops at missing `sdmc:/switch/LibertyRecomp/game/default.xex`.
+
+## 2026-06-15 Update: Guest-Memory Mapping Budget Audit
+
+Added per-map SystemResource logging around the Switch sparse guest-memory `svcMapPhysicalMemory()` calls:
+
+- Logs `SystemResourceSizeTotal` and `SystemResourceSizeUsed` before each map, after successful maps, and after failed maps.
+- This is audit instrumentation only; it does not make the Switch artifact playable.
+
+Build-system refinement:
+
+- Moved guest-memory audit size and function-mapping-skip compile definitions from full-target compile definitions to `kernel/memory.cpp` source-file compile definitions.
+- This keeps `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP` target-wide for `main.cpp`, but changing low/physical/image audit sizes now rebuilds only `memory.cpp`, links, converts NSO, and packages ExeFS.
+- Dry-run after this change showed `4` Ninja steps instead of rebuilding the full `133`-step target.
+- CMake audit defaults are now:
+  - `LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE=0x1000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE=0xF00000`
+
+Capacity audit results with function mappings retained and full scanned image/function-table mapping (`0x24A0000` bytes):
+
+| Low window | Physical window | Build ID | Ryujinx log | Result |
+| --- | --- | --- | --- | --- |
+| `0x2000000` | `0x2000000` | `eb0f01eea431fc4302cf627d12ef04de727f6581` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-26-05.log` | low and XMA mapped; physical heap failed with `0x0000D001` |
+| `0x1000` | `0x2000000` | `2c7be87885669f71798ac0c6d269c66ef75aafb4` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-35-32.log` | physical heap mapped; image/function table failed with `0x0000D001` |
+| `0x1000` | `0x1000000` | `2b8b5735a15a7ff3a4f07530e73c4489a7d3bdc7` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-45-54.log` | physical heap mapped; image/function table failed with `0x0000D001` |
+| `0x1000` | `0x800000` | `78b8792864ad70e3b8428dd977a1cea1a04c3b9f` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-48-31.log` | success; constructor complete; reached `main()` audit stop |
+| `0x1000` | `0xC00000` | `723a05dcec43062b0b26b2c13f485b0e65a63f32` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-51-06.log` | success; constructor complete; reached `main()` audit stop |
+| `0x1000` | `0xE00000` | `d877e4e008452688330a9320cbd77e77b88d941b` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-53-46.log` | success; constructor complete; reached `main()` audit stop |
+| `0x1000` | `0xF00000` | `14293a41cb382b5346b04a31005477554db1cb56` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_10-56-25.log` | success; constructor complete; reached `main()` audit stop |
+
+Important observed lines from the latest successful `0xF00000` physical-window run:
+
+```text
+[Switch][Memory] function table max guest=0x82A77E28 mapped_size=0x24A0000
+[Switch][Memory] map begin physical guest heap guest=0x80000000 size=0xF00000
+[Switch][Memory] map ok physical guest heap
+[Switch][Memory] map begin image/function table guest=0x82000000 size=0x24A0000
+[Switch][Memory] map ok image/function table
+[Switch][Memory] allocate success
+[Switch][Memory] inserting function mappings
+[Switch][Memory] constructor complete
+[Switch] main entered.
+[Switch] Switch guest memory audit mapped successfully; stopping before content preflight and host startup.
+```
+
+Current conclusion:
+
+- `SystemResourceSizeUsed` stayed `0x1000` before and after both successful and failed maps in Ryujinx, so this specific Ryujinx counter is not useful for explaining the practical `0x0000D001` boundary.
+- The retained-function-table audit can now map a stable startup set of `4 KiB` low memory, `64 KiB` XMA I/O, `15 MiB` physical heap, and the full scanned image/function-table range.
+- `16 MiB` physical heap fails when the full scanned image/function table is also retained.
+- The next runtime design step is still demand/page-backed guest memory: full eager low/physical mapping remains too expensive, but the Alias-region contiguous base model remains viable for generated code if pages can be committed selectively.

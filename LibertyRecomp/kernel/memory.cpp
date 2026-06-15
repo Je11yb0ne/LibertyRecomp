@@ -52,6 +52,23 @@ static void SwitchMemoryDebugf(const char* format, ...) noexcept
     buffer[sizeof(buffer) - 1] = '\0';
     SwitchMemoryDebug(buffer);
 }
+
+static void LogSwitchSystemResource(const char* phase, const char* label) noexcept
+{
+    uint64_t systemResourceTotal = 0;
+    uint64_t systemResourceUsed = 0;
+    const uint32_t totalRc = svcGetInfo(&systemResourceTotal, kSwitchInfoSystemResourceSizeTotal, kSwitchCurrentProcessHandle, 0);
+    const uint32_t usedRc = svcGetInfo(&systemResourceUsed, kSwitchInfoSystemResourceSizeUsed, kSwitchCurrentProcessHandle, 0);
+
+    SwitchMemoryDebugf(
+        "[Switch][Memory] system resource %s %s rc=(0x%08X,0x%08X) total=0x%llX used=0x%llX\n",
+        phase,
+        label,
+        totalRc,
+        usedRc,
+        static_cast<unsigned long long>(systemResourceTotal),
+        static_cast<unsigned long long>(systemResourceUsed));
+}
 #endif
 
 static constexpr size_t AlignDown(size_t value, size_t alignment) noexcept
@@ -79,6 +96,7 @@ static bool MapSwitchGuestRange(uint8_t* guestBase, size_t offset, size_t size, 
     if (mapEnd <= mapBegin || mapEnd > PPC_MEMORY_SIZE)
         return false;
 
+    LogSwitchSystemResource("before", label);
     const uint32_t rc = svcMapPhysicalMemory(guestBase + mapBegin, mapEnd - mapBegin);
     if (rc != 0)
     {
@@ -90,11 +108,13 @@ static bool MapSwitchGuestRange(uint8_t* guestBase, size_t offset, size_t size, 
             rc);
         std::fflush(stderr);
         SwitchMemoryDebugf("[Switch][Memory] map failed %s rc=0x%08X\n", label, rc);
+        LogSwitchSystemResource("after-failed", label);
         return false;
     }
 
     std::memset(guestBase + mapBegin, 0, mapEnd - mapBegin);
     SwitchMemoryDebugf("[Switch][Memory] map ok %s\n", label);
+    LogSwitchSystemResource("after", label);
     return true;
 }
 
