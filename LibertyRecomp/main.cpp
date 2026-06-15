@@ -300,6 +300,14 @@ struct SwitchAuditSectionRange
     uint32_t virtualSize;
 };
 
+struct SwitchAuditBasicBlockRange
+{
+    size_t imageOffset;
+    size_t sourceOffset;
+    size_t dataSize;
+    size_t zeroSize;
+};
+
 static bool SwitchAuditRangeWithin(size_t totalSize, size_t offset, size_t length)
 {
     return offset <= totalSize && length <= totalSize - offset;
@@ -313,13 +321,65 @@ static size_t SwitchAuditBoundedStringLength(const char* text, size_t maxLength)
     return length;
 }
 
-static const uint8_t* SwitchAuditFindImageVa(
+static bool SwitchAuditReadStagedImage(
+    const std::vector<SwitchAuditBasicBlockRange>& blocks,
+    const uint8_t* srcData,
+    size_t imageSize,
+    size_t offset,
+    void* output,
+    size_t readSize)
+{
+    if (!SwitchAuditRangeWithin(imageSize, offset, readSize))
+        return false;
+
+    auto* writeData = static_cast<uint8_t*>(output);
+    size_t remaining = readSize;
+    size_t readOffset = offset;
+    while (remaining > 0)
+    {
+        bool foundRange = false;
+        for (const SwitchAuditBasicBlockRange& block : blocks)
+        {
+            const size_t blockSize = block.dataSize + block.zeroSize;
+            if (readOffset < block.imageOffset || readOffset >= block.imageOffset + blockSize)
+                continue;
+
+            const size_t blockOffset = readOffset - block.imageOffset;
+            const size_t availableInBlock = blockSize - blockOffset;
+            const size_t copySize = remaining < availableInBlock ? remaining : availableInBlock;
+            if (blockOffset < block.dataSize)
+            {
+                const size_t dataCopySize = copySize < (block.dataSize - blockOffset) ? copySize : (block.dataSize - blockOffset);
+                memcpy(writeData, srcData + block.sourceOffset + blockOffset, dataCopySize);
+                if (dataCopySize < copySize)
+                    memset(writeData + dataCopySize, 0, copySize - dataCopySize);
+            }
+            else
+            {
+                memset(writeData, 0, copySize);
+            }
+
+            writeData += copySize;
+            readOffset += copySize;
+            remaining -= copySize;
+            foundRange = true;
+            break;
+        }
+
+        if (!foundRange)
+            return false;
+    }
+
+    return true;
+}
+
+static bool SwitchAuditFindImageOffset(
     const std::vector<SwitchAuditSectionRange>& sections,
-    const uint8_t* imageData,
     size_t imageSize,
     uint32_t imageBase,
     uint32_t address,
-    size_t readSize)
+    size_t readSize,
+    size_t& imageOffset)
 {
     for (const SwitchAuditSectionRange& section : sections)
     {
@@ -329,20 +389,15 @@ static const uint8_t* SwitchAuditFindImageVa(
             continue;
 
         const size_t sectionOffset = static_cast<size_t>(address - sectionBase);
-        const size_t imageOffset = static_cast<size_t>(section.virtualAddress) + sectionOffset;
+        imageOffset = static_cast<size_t>(section.virtualAddress) + sectionOffset;
         if (sectionOffset <= sectionSize && readSize <= static_cast<size_t>(sectionSize) - sectionOffset &&
             SwitchAuditRangeWithin(imageSize, imageOffset, readSize))
         {
-            return imageData + imageOffset;
+            return true;
         }
     }
 
-    return nullptr;
-}
-
-static void SwitchAuditFreeBytes(uint8_t* data)
-{
-    free(data);
+    return false;
 }
 
 static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
@@ -440,7 +495,7 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
         return false;
     }
 
-    std::unique_ptr<uint8_t, void(*)(uint8_t*)> imageData(nullptr, SwitchAuditFreeBytes);
+    std::vector<SwitchAuditBasicBlockRange> imageBlocks;
     size_t imageSize = static_cast<uint32_t>(security->imageSize);
     if (compressionType == XEX_COMPRESSION_NONE)
     {
@@ -450,15 +505,8 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
             return false;
         }
 
-        SwitchAuditLog("Switch module-load preflight audit: uncompressed copy phase begin.");
-        imageData.reset(static_cast<uint8_t*>(malloc(imageSize)));
-        if (imageData.get() == nullptr)
-        {
-            SwitchAuditLog("Switch module-load preflight audit: uncompressed copy allocation failed.");
-            return false;
-        }
-        memcpy(imageData.get(), srcData, imageSize);
-        SwitchAuditLog("Switch module-load preflight audit: uncompressed copy phase complete.");
+        imageBlocks.push_back({ 0, 0, imageSize, 0 });
+        SwitchAuditLog("Switch module-load preflight audit: uncompressed staged image view ready.");
     }
     else if (compressionType == XEX_COMPRESSION_BASIC)
     {
@@ -473,6 +521,7 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
         const size_t numBlocks = (infoSize / sizeof(Xex2FileBasicCompressionInfo)) - 1;
         size_t expectedImageSize = 0;
         size_t compressedBytes = 0;
+        imageBlocks.reserve(numBlocks);
         for (size_t i = 0; i < numBlocks; i++)
         {
             const size_t dataBytes = static_cast<uint32_t>(blocks[i].dataSize);
@@ -482,40 +531,18 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
                 SwitchAuditLogf("Switch module-load preflight audit: basic decompression failed: block %llu exceeds payload.", static_cast<unsigned long long>(i));
                 return false;
             }
+            imageBlocks.push_back({ expectedImageSize, compressedBytes, dataBytes, zeroBytes });
             compressedBytes += dataBytes;
             expectedImageSize += dataBytes + zeroBytes;
         }
 
         SwitchAuditLogf(
-            "Switch module-load preflight audit: basic decompression phase begin blocks=%llu compressedBytes=%llu expectedImageSize=0x%llX.",
+            "Switch module-load preflight audit: staged basic decompression view ready blocks=%llu compressedBytes=%llu expectedImageSize=0x%llX.",
             static_cast<unsigned long long>(numBlocks),
             static_cast<unsigned long long>(compressedBytes),
             static_cast<unsigned long long>(expectedImageSize));
 
         imageSize = expectedImageSize;
-        SwitchAuditLogf(
-            "Switch module-load preflight audit: basic decompression allocation begin bytes=%llu.",
-            static_cast<unsigned long long>(imageSize));
-        imageData.reset(static_cast<uint8_t*>(malloc(imageSize)));
-        if (imageData.get() == nullptr)
-        {
-            SwitchAuditLog("Switch module-load preflight audit: basic decompression allocation failed.");
-            return false;
-        }
-        SwitchAuditLog("Switch module-load preflight audit: basic decompression allocation complete.");
-        uint8_t* destData = imageData.get();
-        const uint8_t* blockSrcData = srcData;
-        for (size_t i = 0; i < numBlocks; i++)
-        {
-            const size_t dataBytes = static_cast<uint32_t>(blocks[i].dataSize);
-            const size_t zeroBytes = static_cast<uint32_t>(blocks[i].zeroSize);
-            memcpy(destData, blockSrcData, dataBytes);
-            blockSrcData += dataBytes;
-            destData += dataBytes;
-            memset(destData, 0, zeroBytes);
-            destData += zeroBytes;
-        }
-        SwitchAuditLog("Switch module-load preflight audit: basic decompression phase complete.");
     }
     else
     {
@@ -530,37 +557,50 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
     }
 
     SwitchAuditLog("Switch module-load preflight audit: PE section scan phase begin.");
-    const auto* dosHeader = reinterpret_cast<const SwitchAuditImageDosHeader*>(imageData.get());
-    if (dosHeader->e_magic != 0x5A4D ||
-        !SwitchAuditRangeWithin(imageSize, dosHeader->e_lfanew, sizeof(SwitchAuditImageNtHeaders32)))
+    SwitchAuditImageDosHeader dosHeader{};
+    if (!SwitchAuditReadStagedImage(imageBlocks, srcData, imageSize, 0, &dosHeader, sizeof(dosHeader)) ||
+        dosHeader.e_magic != 0x5A4D ||
+        !SwitchAuditRangeWithin(imageSize, dosHeader.e_lfanew, sizeof(SwitchAuditImageNtHeaders32)))
     {
         SwitchAuditLogf(
             "Switch module-load preflight audit: PE scan failed: magic=0x%04X e_lfanew=0x%X imageSize=0x%llX.",
-            dosHeader->e_magic,
-            dosHeader->e_lfanew,
+            dosHeader.e_magic,
+            dosHeader.e_lfanew,
             static_cast<unsigned long long>(imageSize));
         return false;
     }
 
-    const auto* ntHeaders = reinterpret_cast<const SwitchAuditImageNtHeaders32*>(imageData.get() + dosHeader->e_lfanew);
-    const size_t sectionTableOffset = static_cast<size_t>(dosHeader->e_lfanew) + sizeof(uint32_t) + sizeof(SwitchAuditImageFileHeader) + ntHeaders->FileHeader.SizeOfOptionalHeader;
-    const size_t sectionTableSize = static_cast<size_t>(ntHeaders->FileHeader.NumberOfSections) * sizeof(SwitchAuditImageSectionHeader);
-    if (ntHeaders->Signature != 0x00004550 ||
+    SwitchAuditImageNtHeaders32 ntHeaders{};
+    if (!SwitchAuditReadStagedImage(imageBlocks, srcData, imageSize, dosHeader.e_lfanew, &ntHeaders, sizeof(ntHeaders)))
+    {
+        SwitchAuditLog("Switch module-load preflight audit: PE scan failed: NT headers could not be read.");
+        return false;
+    }
+
+    const size_t sectionTableOffset = static_cast<size_t>(dosHeader.e_lfanew) + sizeof(uint32_t) + sizeof(SwitchAuditImageFileHeader) + ntHeaders.FileHeader.SizeOfOptionalHeader;
+    const size_t sectionTableSize = static_cast<size_t>(ntHeaders.FileHeader.NumberOfSections) * sizeof(SwitchAuditImageSectionHeader);
+    if (ntHeaders.Signature != 0x00004550 ||
         !SwitchAuditRangeWithin(imageSize, sectionTableOffset, sectionTableSize))
     {
         SwitchAuditLogf(
             "Switch module-load preflight audit: PE scan failed: signature=0x%08X sectionOffset=0x%llX sectionBytes=0x%llX.",
-            ntHeaders->Signature,
+            ntHeaders.Signature,
             static_cast<unsigned long long>(sectionTableOffset),
             static_cast<unsigned long long>(sectionTableSize));
         return false;
     }
 
     std::vector<SwitchAuditSectionRange> sections;
-    const auto* sectionHeaders = reinterpret_cast<const SwitchAuditImageSectionHeader*>(imageData.get() + sectionTableOffset);
-    for (uint16_t i = 0; i < ntHeaders->FileHeader.NumberOfSections; i++)
+    for (uint16_t i = 0; i < ntHeaders.FileHeader.NumberOfSections; i++)
     {
-        const auto& section = sectionHeaders[i];
+        SwitchAuditImageSectionHeader section{};
+        const size_t sectionOffset = sectionTableOffset + static_cast<size_t>(i) * sizeof(SwitchAuditImageSectionHeader);
+        if (!SwitchAuditReadStagedImage(imageBlocks, srcData, imageSize, sectionOffset, &section, sizeof(section)))
+        {
+            SwitchAuditLogf("Switch module-load preflight audit: PE section %u read failed.", static_cast<unsigned>(i));
+            return false;
+        }
+
         SwitchAuditSectionRange range{};
         memcpy(range.name, section.Name, sizeof(section.Name));
         range.name[sizeof(range.name) - 1] = '\0';
@@ -578,7 +618,7 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
     }
     SwitchAuditLogf(
         "Switch module-load preflight audit: PE section scan phase complete sections=%u.",
-        static_cast<unsigned>(ntHeaders->FileHeader.NumberOfSections));
+        static_cast<unsigned>(ntHeaders.FileHeader.NumberOfSections));
 
     SwitchAuditLog("Switch module-load preflight audit: import thunk scan phase begin.");
     const auto* imports = reinterpret_cast<const Xex2ImportHeader*>(getOptHeaderPtr(data, XEX_HEADER_IMPORT_LIBRARIES));
@@ -642,8 +682,8 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
         for (uint16_t descriptorIndex = 0; descriptorIndex < numberOfImports; descriptorIndex++)
         {
             const uint32_t firstThunk = static_cast<uint32_t>(descriptors[descriptorIndex].firstThunk);
-            const uint8_t* thunkPtr = SwitchAuditFindImageVa(sections, imageData.get(), imageSize, imageBase, firstThunk, sizeof(uint32_t));
-            if (thunkPtr == nullptr)
+            size_t thunkImageOffset = 0;
+            if (!SwitchAuditFindImageOffset(sections, imageSize, imageBase, firstThunk, sizeof(uint32_t), thunkImageOffset))
             {
                 libraryMissingThunks++;
                 missingThunkTargets++;
@@ -651,7 +691,12 @@ static bool SwitchAuditProbeXexFullParsePhases(uint8_t* data, size_t dataSize)
             }
 
             uint32_t thunkData = 0;
-            memcpy(&thunkData, thunkPtr, sizeof(thunkData));
+            if (!SwitchAuditReadStagedImage(imageBlocks, srcData, imageSize, thunkImageOffset, &thunkData, sizeof(thunkData)))
+            {
+                libraryMissingThunks++;
+                missingThunkTargets++;
+                continue;
+            }
             thunkData = ByteSwap(thunkData);
             const uint32_t thunkType = (thunkData >> 24) & 0xFF;
             if (thunkType != XEX_THUNK_VARIABLE)
