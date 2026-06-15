@@ -1544,3 +1544,101 @@ Current conclusion:
 - Full `Image::ParseImage()` is the next host-side blocker to instrument or replace, but the current stage stops before that path.
 - Guest-memory writes, video/audio setup, `GuestThread::Start()`, generated PPC code, and gameplay are still skipped.
 - This does not make the Switch build playable.
+
+## 2026-06-15 Update: XEX Full-Parse Phase Probe / Loader Heap Boundary
+
+The module-load preflight was extended with a Switch-local full-parse phase probe in `LibertyRecomp/main.cpp`. This probe does not call `Image::ParseImage()` and does not write into guest memory. It logs the same host-side phases that the XEX loader would need before guest startup:
+
+- XEX key decrypt.
+- XEX payload AES-CBC decrypt.
+- Basic decompression block sizing/allocation.
+- PE section scan and import thunk scan when decompression storage is available.
+
+Host-side read-only profiling against:
+
+`D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)\default.xex`
+
+completed key decrypt, image decrypt, basic decompression, and PE section scan in about `461 ms`. That local run reported `3` basic-compression blocks, `13` PE sections, `imageSize=0x11F0000`, `imageBase=0x82000000`, and entry `0x829A0860`.
+
+Important Switch/Ryujinx findings:
+
+- A first Switch probe that allocated a separate decrypted payload buffer did not reach phase completion within the test window.
+- Adding allocation breadcrumbs showed the duplicate decrypted-buffer allocation path can enter Ryujinx's GCC unwinder blocker (`Unknown MRS ... gcspr_el0`) during allocation.
+- The probe was changed to decrypt the XEX payload in place inside the `LoadFile()` buffer. This avoids the extra `11829248` byte decrypted copy.
+- With in-place decrypt, Ryujinx completed AES-CBC decrypt through offset `0xB48000`.
+- Basic decompression then reported `blocks=3`, `compressedBytes=11829248`, and `expectedImageSize=0x11F0000`.
+- The decompression output allocation of `18808832` bytes failed cleanly under the current 16 MiB libnx heap while the loaded XEX buffer was still resident.
+
+Full-parse phase probe ExeFS:
+
+- Build ID:
+  `0302534e936f6c49b448b878e2ba77bb2e51257d`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+
+Ryujinx real-layout phase-probe run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-16-23.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - Temporary links were removed after the run.
+  - Ryujinx portable `enable_ptc` was restored to `true`.
+
+Important lines:
+
+```text
+[Switch] Switch module-load preflight audit: module bytes=11841536
+[Switch] Switch module-load preflight audit: xex moduleFlags=0x00000001 headerSize=0x3000 security=0x90 optHeaders=15 imageSize=0x11F0000 load=0x82000000 imageBase=0x82000000 entry=0x829A0860 resource=0x83150000+0x0009BA69 fileFormat enc=1 comp=1 imports=2 pages=287
+[Switch] Switch module-load preflight audit: decrypt image phase begin using in-place payload buffer.
+[Switch] Switch module-load preflight audit: decrypt image chunk complete offset=0xB48000.
+[Switch] Switch module-load preflight audit: decrypt image phase complete.
+[Switch] Switch module-load preflight audit: basic decompression phase begin blocks=3 compressedBytes=11829248 expectedImageSize=0x11F0000.
+[Switch] Switch module-load preflight audit: basic decompression allocation begin bytes=18808832.
+[Switch] Switch module-load preflight audit: basic decompression allocation failed.
+[Switch] Switch module-load preflight audit summary: XEX full-parse phase probe failed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.
+```
+
+Default ExeFS rebuild after the phase-probe source changes:
+
+- Default ExeFS Build ID:
+  `89b13bdec0d3610a5afdb5d626296ffe17427e14`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-23-38.log`
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- XEX header metadata, VFS indexing, and in-place AES-CBC payload decrypt are no longer the immediate blocker.
+- The next blocker is host-loader memory strategy for the decompressed image buffer under Switch heap constraints.
+- Calling the existing full `Image::ParseImage()` path unchanged is not appropriate on Switch yet because it allocates a decrypted payload copy and a decompressed image buffer before returning an `Image`.
+- The next smallest boundary should test a Switch-safe loader memory strategy, still stopping before `LdrLoadModule()` guest-memory writes and guest code.
+- This does not make the Switch build playable.

@@ -8,11 +8,17 @@ This is not a playable Switch port. All current Switch artifacts are audit packa
 
 ## Current Stage Goal
 
-Add and verify a Switch-only module-load preflight that uses the real staged GTA IV layout, reaches the host-side module metadata boundary after Config, install check, XAM roots, path cache, and VFS indexing, and stops before guest/gameplay code starts.
+Define the next Switch-safe module image memory strategy before attempting full `Image::ParseImage()` or guest-memory writes. The immediate blocker is no longer content layout, VFS, or XEX metadata; it is host-side XEX image expansion under the current Switch heap budget.
 
-Current finding: a first attempt reached `default.xex` read success (`module bytes=11841536`) and then did not return from `Image::ParseImage()` within the 240-second Ryujinx window. The next minimal boundary is therefore a lightweight XEX header/module-metadata preflight that stops before full `Image::ParseImage()`, guest-memory writes, and guest code.
+Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
-Current stage result: lightweight XEX metadata preflight now passes in Ryujinx with the real staged layout. It reads `default.xex`, validates the XEX2 header bounds, logs security/file-format/resource/import metadata, and stops before `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
+Previous stage result: lightweight XEX metadata preflight passes in Ryujinx with the real staged layout. It reads `default.xex`, validates the XEX2 header bounds, logs security/file-format/resource/import metadata, and stops before `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
+
+Current stage rule: do not modify `tools/XenonRecomp` yet. First reproduce or narrow the parse behavior with local/read-only evidence, then add Switch-local audit instrumentation only if needed.
+
+Local host-side profiling result: a read-only parser against `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)\default.xex` completed XEX key decrypt, image decrypt, basic decompression, and PE section scan in about `461 ms` on Windows. It reported three basic-compression blocks, `13` PE sections, `imageSize=0x11F0000`, `imageBase=0x82000000`, and entry `0x829A0860`. This suggests the 240-second Ryujinx stall is not simply that the source XEX is too large to parse; the next minimal Switch boundary should log equivalent phases inside the Switch audit path before calling full `Image::ParseImage()`.
+
+Latest Switch result: the Switch-local full-parse phase probe proved that in-place AES-CBC decryption of the `11829248` byte XEX payload completes in Ryujinx, but the next basic decompression output allocation needs `18808832` bytes (`0x11F0000`) and fails under the current 16 MiB libnx heap while the loaded XEX buffer is still resident. Earlier duplicate-buffer attempts entered the GCC unwinder path (`Unknown MRS ... gcspr_el0`) during allocation. Continue by designing a Switch-safe host loader memory strategy: in-place decrypt plus staged/streamed decompression, a temporary audit heap increase, or a dedicated module-loader arena. Do not call `Image::ParseImage()` unchanged until this boundary is addressed.
 
 ## Explicit Non-Goals
 
@@ -35,10 +41,13 @@ Can touch in the current stage:
 
 Do not touch unless a later stage explicitly scopes it:
 
+- `docs/backups/github-backup-20260615-022231/submodule-diffs/*.patch`
 - `thirdparty/concurrentqueue`
+- other dirty `thirdparty/*` submodules currently reported by `git status`
 - `thirdparty/implot`
 - `thirdparty/plume`
 - `tools/XenonRecomp`
+- other dirty `tools/*` submodules currently reported by `git status`
 - `.planning/`
 - `docs/dev/`
 
@@ -47,14 +56,14 @@ Do not touch unless a later stage explicitly scopes it:
 1. Baseline default ExeFS verification.
    Completion standard: `LibertyRecompExeFs` builds, `readelf -dW` reports no `TEXTREL`, Ryujinx missing-content smoke reaches `Early preflight missing game executable`, and no VFS/module/guest path is entered.
 
-2. Inspect module-loading call flow.
-   Completion standard: identify the exact host-side call(s) that load or parse `default.xex`, identify the first guest-code start boundary, and record the safe stop point before guest execution.
+2. Choose the next module-loader memory boundary.
+   Completion standard: document whether the next audit build will test a temporary heap increase, a malloc-backed loader arena, or streaming/staged basic decompression, and state why it remains before guest-memory writes.
 
-3. Add or refine `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT`.
-   Completion standard: with staged real content, the audit runs Config, install check, XAM roots, `BuildPathCache`, `VFS::Initialize`, reads `default.xex`, validates XEX2 header/security/file-format/resource/entry metadata, logs success/failure, then stops before full `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, video/audio setup, `KiSystemStartup()`, `GuestThread::Start()`, or generated PPC code.
+3. Implement the smallest loader-memory experiment.
+   Completion standard: change only `LibertyRecomp/main.cpp` and, if absolutely needed, one Switch CMake heap/audit option; keep it behind `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT`.
 
-4. Verify module-load metadata preflight in Ryujinx with real staged layout.
-   Completion standard: `LibertyRecompExeFs` builds, no `TEXTREL`, Ryujinx log shows the new module-load metadata preflight stop and concrete XEX metadata. Temporary SD hardlinks/junctions are removed and PTC is restored.
+4. Verify the loader-memory experiment in Ryujinx with real staged layout.
+   Completion standard: `LibertyRecompExeFs` builds, no `TEXTREL`, Ryujinx log shows whether decompression allocation/streaming succeeds, and the audit still stops before `LdrLoadModule()` guest-memory writes and `GuestThread::Start()`. Temporary SD hardlinks/junctions are removed and PTC is restored.
 
 5. Restore default ExeFS and smoke-test.
    Completion standard: default CMake cache has all Switch audit stops OFF and guest-memory audit OFF; default Ryujinx smoke returns to missing-content behavior without entering module-load preflight.
@@ -84,11 +93,22 @@ Do not touch unless a later stage explicitly scopes it:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-49-32.log`
 - Restored default result:
   all Switch audit stops OFF, guest-memory audit OFF, no `TEXTREL`, Ryujinx reaches missing `sdmc:/switch/LibertyRecomp/game/default.xex`, PTC restored, and Ryujinx SD `game` directory is empty.
+- Full-parse phase probe Build ID:
+  `0302534e936f6c49b448b878e2ba77bb2e51257d`
+- Full-parse phase probe Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-16-23.log`
+- Full-parse phase probe result:
+  in-place AES-CBC decrypted the full payload through offset `0xB48000`; basic decompression reported `blocks=3`, `compressedBytes=11829248`, `expectedImageSize=0x11F0000`, then `basic decompression allocation failed`; the audit stopped before `Image::ParseImage`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
+- Restored default ExeFS Build ID after full-parse probe:
+  `89b13bdec0d3610a5afdb5d626296ffe17427e14`
+- Restored default ExeFS Ryujinx smoke log after full-parse probe:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-23-38.log`
 
 ## Latest Verified Baselines
 
 - Branch: `codex/switch-audit-20260615`
 - Latest pushed commit before this guide: `16d1358e Harden Switch VFS recursive index audit`
+- Latest pushed commit with module metadata preflight: `f76e7738 Add Switch module metadata preflight audit`
 - Latest recursive VFS preflight Build ID: `9270023bb67df2533a5686d991efa7ad3e9933ed`
 - Latest recursive VFS preflight Ryujinx log:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_19-00-43.log`
@@ -113,6 +133,16 @@ Do not touch unless a later stage explicitly scopes it:
   `06726e9a15c3c4a05df9ed3e35d93961ed5cc581`
 - Latest restored default ExeFS Ryujinx log:
   `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-49-32.log`
+- Latest local host-side XEX profiling:
+  `default.xex` key decrypt/image decrypt/basic decompression/PE scan completed in about `461 ms`; no repo files were modified by the profiling command.
+- Latest Switch full-parse phase probe Build ID:
+  `0302534e936f6c49b448b878e2ba77bb2e51257d`
+- Latest Switch full-parse phase probe Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-16-23.log`
+- Latest restored default ExeFS Build ID:
+  `89b13bdec0d3610a5afdb5d626296ffe17427e14`
+- Latest restored default ExeFS Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_23-23-38.log`
 - Latest default expected behavior:
   `main entered` -> `Switch audit package startup` -> `Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex`
 
@@ -126,7 +156,7 @@ Remove-Item Env:VCPKG_ROOT -ErrorAction SilentlyContinue
 $env:DEVKITPRO='C:/devkitPro'
 $env:DEVKITA64='C:/devkitPro/devkitA64'
 $cmake='C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-& $cmake -S 'C:\Users\Jellybone\Documents\GitHub\LibertyRecomp' -B $build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDEVKITPRO=C:/devkitPro -DDEVKITA64=C:/devkitPro/devkitA64 -DCMAKE_TOOLCHAIN_FILE='C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\toolchains\switch-libnx.cmake' -DCMAKE_MAKE_PROGRAM='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\bin\ninja.exe' -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF -DLIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF
+& $cmake -S 'C:\Users\Jellybone\Documents\GitHub\LibertyRecomp' -B $build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDEVKITPRO=C:/devkitPro -DDEVKITA64=C:/devkitPro/devkitA64 -DCMAKE_TOOLCHAIN_FILE='C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\toolchains\switch-libnx.cmake' -DCMAKE_MAKE_PROGRAM='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\bin\ninja.exe' -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF -DLIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF -DLIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF
 ```
 
 Build default ExeFS:
@@ -166,4 +196,4 @@ Enter the next stage only after this stage has:
 
 ## Next Boundary Decision
 
-The next smallest useful boundary is full XEX image parse instrumentation, but without modifying the `tools/XenonRecomp` submodule first. Prefer adding a Switch-local audit parser or wrapper in mainline code that logs decompression/import phases before calling or replacing `Image::ParseImage()`. Only modify `tools/XenonRecomp` after documenting why a submodule-local change is unavoidable.
+The next smallest useful boundary is module-loader memory strategy. Prefer an audit-only path in `LibertyRecomp/main.cpp` that keeps decryption in-place and either streams/stages basic decompression or tests a documented temporary heap/arena increase, then stops before `LdrLoadModule()` writes into guest memory. Only modify `tools/XenonRecomp` after documenting why a submodule-local change is unavoidable.
