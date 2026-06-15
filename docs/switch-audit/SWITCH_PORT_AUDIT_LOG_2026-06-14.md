@@ -1083,3 +1083,124 @@ Current conclusion:
 - The expected SD module path is confirmed as `sdmc:/switch/LibertyRecomp/game/default.xex`.
 - A real `default.xex` plus extracted content can now be placed under the documented SD layout for the next content-loading audit, but guest code must remain blocked until Switch guest memory/page backing is designed.
 - This does not make the Switch build playable.
+
+## 2026-06-15 Update: Content Layout Audit
+
+Added a Switch-only content-layout audit stop:
+
+- `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK`
+
+Runtime behavior:
+
+- Runs after Switch SD/RomFS startup.
+- Calls `Config::Load()`.
+- Calls `Installer::checkGameInstall(GetGamePath(), modulePath)`.
+- Checks and logs:
+  - `sdmc:/switch/LibertyRecomp/game/default.xex`
+  - `sdmc:/switch/LibertyRecomp/game/common`
+  - `sdmc:/switch/LibertyRecomp/game/xbox360`
+  - `sdmc:/switch/LibertyRecomp/game/audio`
+  - optional source archives `common.rpf`, `xbox360.rpf`, `audio.rpf`
+  - legacy `sdmc:/switch/LibertyRecomp/RPF DUMP`
+  - optional `sdmc:/switch/LibertyRecomp/dlc`
+- Stops before host startup, VFS initialization, module loading, video/audio setup, or guest code.
+
+This is an audit boundary only. It does not make the Switch artifact playable.
+
+Content-layout audit ExeFS:
+
+- Build ID:
+  `96d68de22f004ab9796105413893cde5b6cc65b1`
+- Artifact during the audit:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+
+Missing-layout content audit run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_16-28-17.log`
+- Result:
+  - Reached `main()`.
+  - `Config::Load()` returned.
+  - Reported missing `game/default.xex`.
+  - Reported missing extracted `game/common`, `game/xbox360`, and `game/audio`.
+  - Reported missing optional source RPF archives, legacy `RPF DUMP`, and optional `dlc`.
+  - Stopped before host startup, VFS initialization, module loading, or guest code.
+
+Important lines:
+
+```text
+[Switch] Switch content-layout audit: game/default.xex missing: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch content-layout audit: extracted common directory missing: sdmc:/switch/LibertyRecomp/game/common
+[Switch] Switch content-layout audit: extracted xbox360 directory missing: sdmc:/switch/LibertyRecomp/game/xbox360
+[Switch] Switch content-layout audit: extracted audio directory missing: sdmc:/switch/LibertyRecomp/game/audio
+[Switch] Switch content-layout audit summary: missing game/default.xex
+```
+
+Temporary-present content audit run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_16-28-59.log`
+- A 4-byte temporary dummy `default.xex` and empty temporary `common`, `xbox360`, and `audio` directories were created only under Ryujinx's portable SD card to validate the positive layout branch.
+- The dummy file and temporary directories were removed after the run.
+- Result:
+  - Reported `game/default.xex` present.
+  - Reported extracted `game/common`, `game/xbox360`, and `game/audio` directories present.
+  - Still stopped before host startup, VFS initialization, module loading, or guest code.
+
+Important lines:
+
+```text
+[Switch] Switch content-layout audit: game/default.xex present: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch content-layout audit: extracted common directory present: sdmc:/switch/LibertyRecomp/game/common
+[Switch] Switch content-layout audit: extracted xbox360 directory present: sdmc:/switch/LibertyRecomp/game/xbox360
+[Switch] Switch content-layout audit: extracted audio directory present: sdmc:/switch/LibertyRecomp/game/audio
+[Switch] Switch content-layout audit summary: required extracted content directories are present
+```
+
+Default package rebuild after the content-layout source change:
+
+- Default ExeFS/NRO Build ID:
+  `b65ed805ba6bf8a924a07ea7191ec42abfa5a7b8`
+- Default NRO artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecomp.nro`
+  - Size: `160,929,730` bytes
+  - Last write time: `2026-06-15 16:31:06`
+- Default ExeFS artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+  - Size: `64,969,744` bytes
+  - Last write time: `2026-06-15 16:31:08`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+- Ryujinx default smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_16-32-39.log`
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+No `Unknown MRS`, `gcspr`, `Unhandled exception`, `InvalidMemory`, or `Switch content-layout audit` lines were found in the latest default smoke log.
+
+Ryujinx portable `enable_ptc` was temporarily set to `false` only during fresh audit package runs and restored to `true` after each run. Temporary dummy content was removed from the emulator SD card.
+
+Current conclusion:
+
+- The expected extracted SD layout is now explicit and testable without entering host startup, VFS initialization, module loading, or guest code.
+- `default.xex` alone is still not enough. The next content milestone needs real extracted `game/common`, `game/xbox360`, and `game/audio` content before attempting VFS/module-load preflight.
+- Guest code must remain blocked until Switch guest memory/page backing is designed.
+- This does not make the Switch build playable.

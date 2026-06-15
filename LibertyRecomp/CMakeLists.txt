@@ -20,6 +20,9 @@ if (LIBERTY_RECOMP_SWITCH)
     option(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK
         "Stop the Switch audit build after Config::Load and Installer::checkGameInstall return."
         OFF)
+    option(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK
+        "Stop the Switch audit build after checking the expected SD content layout."
+        OFF)
     option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS
         "Skip generated function-table initialization in the Switch sparse memory audit backend."
         ${LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP})
@@ -502,6 +505,10 @@ if (LIBERTY_RECOMP_SWITCH)
     if (LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK)
         set_property(SOURCE "main.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
             LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK)
+    endif()
+    if (LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK)
+        set_property(SOURCE "main.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
+            LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK)
     endif()
     if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
         list(APPEND LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS

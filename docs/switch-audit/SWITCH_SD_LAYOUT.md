@@ -44,6 +44,7 @@ sdmc:/switch/LibertyRecomp/
 - If it exists, the current NRO still stops on `Guest memory disabled` because Switch guest memory is intentionally not enabled in the startup-container build.
 - A Switch config-audit build can be enabled with `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD`; it runs `Config::Load()` and stops before content preflight, host startup, module loading, or guest code.
 - A Switch install-check audit build can be enabled with `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK`; it runs `Config::Load()`, calls `Installer::checkGameInstall()`, logs whether `game/default.xex` exists, and stops before host startup, module loading, or guest code.
+- A Switch content-layout audit build can be enabled with `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK`; it runs `Config::Load()`, calls `Installer::checkGameInstall()`, checks `game/default.xex`, extracted `game/common`, `game/xbox360`, `game/audio`, optional source RPF archives, legacy `RPF DUMP`, and optional `dlc`, then stops before host startup, VFS initialization, module loading, or guest code.
 
 ## Notes
 

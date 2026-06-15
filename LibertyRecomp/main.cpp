@@ -136,6 +136,30 @@ static bool SwitchAuditFileExists(const char* path)
     fclose(file);
     return true;
 }
+
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK)
+static bool SwitchAuditFileExists(const std::filesystem::path& path)
+{
+    const std::string pathString = path.string();
+    return SwitchAuditFileExists(pathString.c_str());
+}
+
+static bool SwitchAuditDirectoryExists(const std::filesystem::path& path)
+{
+    const std::string pathString = path.string();
+    struct stat pathStat;
+    if (stat(pathString.c_str(), &pathStat) != 0)
+        return false;
+
+    return S_ISDIR(pathStat.st_mode);
+}
+
+static void SwitchAuditLogPresence(const char* label, const std::filesystem::path& path, bool present)
+{
+    std::string message = std::string(label) + (present ? " present:" : " missing:");
+    SwitchAuditLog(message.c_str(), path);
+}
+#endif
 #endif
 
 #if defined(_WIN32) && defined(LIBERTY_RECOMP_D3D12)
@@ -488,6 +512,100 @@ int main(int argc, char *argv[])
                 ? "default.xex was found.\nHost startup, module loading, and guest code were skipped."
                 : "default.xex was not found.\nHost startup, module loading, and guest code were skipped.",
             modulePathText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
+
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK)
+    {
+        SwitchAuditLog("Switch content-layout audit: before Config::Load.");
+        Config::Load();
+        SwitchAuditLog("Switch content-layout audit: Config::Load returned.");
+
+        const std::filesystem::path contentRoot = GetGamePath();
+        const std::filesystem::path gameRoot = contentRoot / "game";
+        const std::filesystem::path commonRoot = gameRoot / "common";
+        const std::filesystem::path xbox360Root = gameRoot / "xbox360";
+        const std::filesystem::path audioRoot = gameRoot / "audio";
+        const std::filesystem::path commonRpf = gameRoot / "common.rpf";
+        const std::filesystem::path xbox360Rpf = gameRoot / "xbox360.rpf";
+        const std::filesystem::path audioRpf = gameRoot / "audio.rpf";
+        const std::filesystem::path legacyRpfDump = contentRoot / "RPF DUMP";
+        const std::filesystem::path dlcRoot = contentRoot / "dlc";
+
+        SwitchAuditLog("Switch content-layout audit: content root:", contentRoot);
+        SwitchAuditLog("Switch content-layout audit: game root:", gameRoot);
+
+        std::filesystem::path modulePath;
+        const bool modulePresent = Installer::checkGameInstall(contentRoot, modulePath);
+        SwitchAuditLogPresence("Switch content-layout audit: game/default.xex", modulePath, modulePresent);
+
+        const bool gameRootPresent = SwitchAuditDirectoryExists(gameRoot);
+        const bool commonPresent = SwitchAuditDirectoryExists(commonRoot);
+        const bool xbox360Present = SwitchAuditDirectoryExists(xbox360Root);
+        const bool audioPresent = SwitchAuditDirectoryExists(audioRoot);
+        const bool commonRpfPresent = SwitchAuditFileExists(commonRpf);
+        const bool xbox360RpfPresent = SwitchAuditFileExists(xbox360Rpf);
+        const bool audioRpfPresent = SwitchAuditFileExists(audioRpf);
+        const bool legacyRpfDumpPresent = SwitchAuditDirectoryExists(legacyRpfDump);
+        const bool dlcPresent = SwitchAuditDirectoryExists(dlcRoot);
+
+        SwitchAuditLogPresence("Switch content-layout audit: game directory", gameRoot, gameRootPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: extracted common directory", commonRoot, commonPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: extracted xbox360 directory", xbox360Root, xbox360Present);
+        SwitchAuditLogPresence("Switch content-layout audit: extracted audio directory", audioRoot, audioPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: source common.rpf", commonRpf, commonRpfPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: source xbox360.rpf", xbox360Rpf, xbox360RpfPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: source audio.rpf", audioRpf, audioRpfPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: legacy RPF DUMP directory", legacyRpfDump, legacyRpfDumpPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: optional DLC directory", dlcRoot, dlcPresent);
+
+        const bool extractedReady = commonPresent && xbox360Present && audioPresent;
+        const bool sourceArchivesPresent = commonRpfPresent && xbox360RpfPresent && audioRpfPresent;
+        const char* summary = "content layout incomplete";
+        const char* screenStatus =
+            "Content layout is incomplete.\n"
+            "Host startup, module loading, and guest code were skipped.";
+
+        if (!modulePresent)
+        {
+            summary = "missing game/default.xex";
+            screenStatus =
+                "game/default.xex is missing.\n"
+                "Host startup, module loading, and guest code were skipped.";
+        }
+        else if (extractedReady)
+        {
+            summary = "required extracted content directories are present";
+            screenStatus =
+                "default.xex and extracted content directories are present.\n"
+                "Host startup, module loading, and guest code were skipped.";
+        }
+        else if (sourceArchivesPresent)
+        {
+            summary = "source RPF archives are present but extracted directories are missing";
+            screenStatus =
+                "RPF archives are present, but extracted content directories are missing.\n"
+                "Host startup, module loading, and guest code were skipped.";
+        }
+        else if (legacyRpfDumpPresent)
+        {
+            summary = "legacy RPF DUMP directory is present but current game layout is incomplete";
+            screenStatus =
+                "Legacy RPF DUMP exists, but current game/common, game/xbox360, and game/audio layout is incomplete.\n"
+                "Host startup, module loading, and guest code were skipped.";
+        }
+
+        SwitchAuditLog("Switch content-layout audit summary:", summary);
+        SwitchAuditLog("Switch content-layout audit: stopping before host startup, module loading, and guest code.");
+
+        const std::string gameRootText = gameRoot.string();
+        LibertySwitchShowAuditDiagnostic(
+            "Content layout audit",
+            screenStatus,
+            gameRootText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
         return 0;
