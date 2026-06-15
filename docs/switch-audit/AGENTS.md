@@ -37,10 +37,11 @@ This is not a playable Switch port yet. The current goal is to make the codebase
   `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompMemoryProbeExefs.nsp`
 - Switch build can also emit a full LibertyRecomp ExeFS/NPDM audit package:
   `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Continue Switch runtime audits with `LibertyRecompExeFs` / `LibertyRecompExefs.nsp` by default. Build `LibertyRecompNro` only when testing Homebrew Menu / NRO icon, name, or NRO-specific launch behavior.
 - A separate guest-memory audit build directory is now available:
   `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-guest-memory-audit-debug`
   It enables `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT` and `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP` for ExeFS/NPDM testing only.
-- This NRO is not playable. It is only an ELF -> NRO packaging/audit milestone with empty placeholder RomFS and many runtime stubs still active.
+- These Switch artifacts are not playable. They are compile/package/audit milestones with empty placeholder RomFS and many runtime stubs still active.
 - The latest successful Ninja run includes basic `romfs:`/`sdmc:` startup, `sdmc:` already-mounted detection, Switch pre-main breadcrumbs, SD logging, a visible missing-content diagnostic path, and a guard that stops before host/guest startup while Switch guest memory is disabled.
 - Latest confirmed default full NRO/ExeFS Build ID: `4a5ab140d5a54352bcf968b26ea84fc4e20e64c0`.
 - Latest default full ExeFS/NRO rebuild after the install-check audit changes: Build ID `7c5ed727f14026550070339b484eebf66494a12d`; build, `readelf -dW`, and a Ryujinx missing-content smoke test were verified. This was not a gameplay test.
@@ -48,6 +49,8 @@ This is not a playable Switch port yet. The current goal is to make the codebase
 - Latest Switch install-check audit ExeFS Build ID: `41fe5790406b362571818cc479cdc10337905172`. It verified that `Config::Load()` returns, `Installer::checkGameInstall()` checks `sdmc:/switch/LibertyRecomp/game/default.xex`, and both missing-file and temporary-present-file paths stop before host startup, module loading, or guest code.
 - Latest Switch content-layout audit ExeFS Build ID: `96d68de22f004ab9796105413893cde5b6cc65b1`. It verifies `Config::Load()`, `Installer::checkGameInstall()`, `game/default.xex`, extracted `game/common`, `game/xbox360`, `game/audio`, optional source RPF archives, legacy `RPF DUMP`, and optional `dlc`, then stops before host startup, VFS initialization, module loading, or guest code.
 - Latest default full ExeFS/NRO rebuild after the content-layout audit changes: Build ID `b65ed805ba6bf8a924a07ea7191ec42abfa5a7b8`; build, `readelf -dW`, and a Ryujinx missing-content smoke test were verified. This was not a gameplay test.
+- Latest Switch VFS preflight ExeFS Build ID: `02245dda0ecd3890a7281237454c603d82b2b4a3`. It verified the user's real GTA IV layout staged into Ryujinx SD: top-level `game/audio` is absent, `audio:` selects `game/xbox360/audio`, and representative `common`, `platform`, and `audio` paths resolve through both `FileSystem::ResolvePath()` and `VFS::Resolve()`. The audit stops before host startup, module loading, and guest code; it intentionally skips recursive VFS indexing.
+- Latest default full ExeFS rebuild after the VFS preflight changes: Build ID `54c4aad4e61bc03eaebe09b04ca025a537718e6d`; `LibertyRecompExeFs` build, `readelf -dW`, and a Ryujinx missing-content smoke test were verified. This was not a gameplay test.
 - Latest confirmed guest-memory audit ExeFS Build ID: `04e2f6197b65eb00c204af28d1d6e791718e779d`.
 - Latest narrow guest-memory/function-table audit ExeFS Build ID: `df2f6f7d433534156c4b0f6a19017e55d5302406`. This uses `4 KiB` low memory, `4 KiB` physical heap, full scanned image/function-table mapping, does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
 - Latest retained-function-table capacity audit ExeFS Build ID: `14293a41cb382b5346b04a31005477554db1cb56`. This uses `4 KiB` low memory, `15 MiB` physical heap, full scanned image/function-table mapping (`0x24A0000` bytes), does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
@@ -170,19 +173,20 @@ Expected next phase:
 - Improve the current Switch homebrew packaging flow:
   - Refine final NACP metadata if needed.
   - Define the final RomFS/SD layout and harden runtime mount/error behavior.
-- Keep both the produced ELF and NRO strictly as compile/audit artifacts until graphics, audio, guest memory, and runtime stubs are replaced.
+- Keep produced ELF, NRO, and ExeFS artifacts strictly as compile/audit artifacts until graphics, audio, guest memory, and runtime stubs are replaced.
 - Continue runtime crash audit from the new baseline:
-  - Latest default full NRO for optional hardware retest: `LibertyRecomp.nro`, Build ID `7c5ed727f14026550070339b484eebf66494a12d`.
-  - Expected full-NRO behavior without game content: visible `Missing game content` diagnostic, no gameplay UI, no automatic return, and `sdmc:/switch/LibertyRecomp/LibertyRecomp.log` containing `Switch audit package startup; continuing to content preflight.` plus the missing `sdmc:/switch/LibertyRecomp/game/default.xex` path. Close manually from HOME.
+  - Latest default full ExeFS for Ryujinx smoke tests: `LibertyRecompExefs.nsp`, Build ID `54c4aad4e61bc03eaebe09b04ca025a537718e6d`.
+  - Expected default ExeFS behavior without game content: visible `Missing game content` diagnostic, no gameplay UI, and `sdmc:/switch/LibertyRecomp/LibertyRecomp.log` containing `Switch audit package startup; continuing to content preflight.` plus the missing `sdmc:/switch/LibertyRecomp/game/default.xex` path.
+  - Build/test `LibertyRecomp.nro` only when the task is Homebrew Menu / NRO icon, name, or NRO-specific launch behavior.
   - Latest visible independent boot probe: `LibertyRecompBootProbe.nro`, Build ID `d32811733bd2fe5c2e8172085c607fb1379c2903`.
-  - If the full NRO matches Ryujinx on hardware too, the next practical step is to formalize the SD content layout and continue reworking guest memory before any guest startup attempt.
+  - Use hardware NRO tests only for Homebrew Menu / frontend launch behavior. Continue ordinary runtime narrowing in Ryujinx with ExeFS/NPDM packages, then retest on hardware only when the audit boundary needs hardware confirmation.
   - Ryujinx Canary 1.3.269 is now useful for SD-log/main-entry/content-preflight smoke checks after existing `sdmc:` detection, but hardware remains the final check for hold behavior and Sphaira/front-end differences.
 - Start replacing stubs tracked in `SWITCH_STUBS.md` with real Switch runtime systems, starting with graphics backend, guest memory/page protection, filesystem/VFS, and audio.
 - For guest memory, the non-NRO ExeFS/NPDM path has proven `SystemResourceSize` and Alias-region physical mapping in the full process, but the retained-function-table audit currently only supports a small committed startup set (`4 KiB` low + up to `15 MiB` physical + full scanned image/function table). Next step is to turn this into a real demand/page-backed guest memory design; full eager low/physical mapping still exceeds the current practical budget.
 - A separate startup-memory audit now proves an even narrower early-runtime milestone: `0x30000` low memory + `15 MiB` physical heap + Xenon fixed memory mapping can complete `KiSystemStartup()` heap/Xenon initialization when host config/content/module loading and generated function-table insertion are intentionally skipped.
 - The host config-path blocker after that milestone was narrowed: `Config::Save()` had generated duplicate `[Input]` TOML tables, causing `toml::parse()` to throw and hit Ryujinx's GCC unwinder `gcspr_el0` limitation. The current code rewrites duplicate-table configs before parsing and writes grouped TOML sections. Next runtime work can continue toward content/module preflight, still without entering guest code until guest memory is ready.
 - The next content-path audit is now narrowed to `Installer::checkGameInstall()`: `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK` runs `Config::Load()`, checks the expected SD module path, and stops before host startup, module loading, update checking, video/audio setup, or guest code. This validates path/layout plumbing only; it is not a gameplay test.
-- The follow-up content-layout audit now checks the expected extracted SD layout (`game/default.xex`, `game/common`, `game/xbox360`, and `game/audio`) plus optional source archives and fallback directories. Next Switch work can use this to compare the user's real SD content before attempting VFS/module-loading milestones, still without entering guest code until guest memory is ready.
+- The VFS preflight audit now accepts the user's real extracted Xbox 360 layout where audio lives under `game/xbox360/audio` instead of top-level `game/audio`. It proves representative path resolution before host startup/module loading/guest code. Next Switch work should harden the recursive VFS index / `BuildPathCache` filesystem path, then attempt a module-load preflight that still stops before guest code until guest memory/page backing is ready.
 
 ## Reference Repos
 

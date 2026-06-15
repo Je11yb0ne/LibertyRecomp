@@ -27,7 +27,7 @@ namespace VFS
     };
 
     
-    void Initialize(const std::filesystem::path& extractedRoot)
+    void Initialize(const std::filesystem::path& extractedRoot, bool buildIndex)
     {
         printf("[VFS] Initialize called with: %s\n", extractedRoot.string().c_str()); fflush(stdout);
         
@@ -42,10 +42,19 @@ namespace VFS
         ResetPathMappings();
         printf("[VFS] ResetPathMappings done\n"); fflush(stdout);
         
-        // Build file index
-        printf("[VFS] Calling RebuildIndex...\n"); fflush(stdout);
-        RebuildIndex();
-        printf("[VFS] RebuildIndex done\n"); fflush(stdout);
+        g_stats = Stats{};
+
+        if (buildIndex)
+        {
+            // Build file index
+            printf("[VFS] Calling RebuildIndex...\n"); fflush(stdout);
+            RebuildIndex();
+            printf("[VFS] RebuildIndex done\n"); fflush(stdout);
+        }
+        else
+        {
+            printf("[VFS] RebuildIndex skipped\n"); fflush(stdout);
+        }
         
         LOGF_UTILITY("[VFS] Initialized with root: {}", extractedRoot.string());
         LOGF_UTILITY("[VFS] Indexed {} files, {} directories, {} bytes total",
@@ -286,11 +295,19 @@ namespace VFS
         g_pathMappings.push_back({"common.rpf", "common"});
         g_pathMappings.push_back({"xbox360.rpf", "xbox360"});
         g_pathMappings.push_back({"audio.rpf", "audio"});
-        
+        g_pathMappings.push_back({"audio.rpf", "xbox360/audio"});
+
         // Common paths
         g_pathMappings.push_back({"common/", "common/"});
         g_pathMappings.push_back({"data/", "common/data/"});
         g_pathMappings.push_back({"text/", "common/text/"});
+
+        // Audio paths. Some Xbox 360 extracts place audio under xbox360/audio
+        // instead of a top-level audio directory.
+        g_pathMappings.push_back({"audio/", "audio/"});
+        g_pathMappings.push_back({"audio/", "xbox360/audio/"});
+        g_pathMappings.push_back({"sfx/", "audio/sfx/"});
+        g_pathMappings.push_back({"sfx/", "xbox360/audio/sfx/"});
         
         // Platform-specific paths (platform: → xbox360/)
         // GTA IV uses "platform:/textures/fonts" etc. for Xbox 360 platform assets

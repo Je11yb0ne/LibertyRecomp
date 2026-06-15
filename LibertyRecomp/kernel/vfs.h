@@ -28,7 +28,7 @@ namespace VFS
      * Initialize the virtual file system with the extracted root directory.
      * Should be called once at startup after game installation.
      */
-    void Initialize(const std::filesystem::path& extractedRoot);
+    void Initialize(const std::filesystem::path& extractedRoot, bool buildIndex = true);
     
     /**
      * Check if the VFS is initialized.

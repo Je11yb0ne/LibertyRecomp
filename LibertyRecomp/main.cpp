@@ -137,7 +137,23 @@ static bool SwitchAuditFileExists(const char* path)
     return true;
 }
 
-#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK)
+#if defined(__SWITCH__)
+static std::filesystem::path SwitchSelectAudioRoot(const std::filesystem::path& gameRoot)
+{
+    std::error_code ec;
+    const std::filesystem::path audioRoot = gameRoot / "audio";
+    if (std::filesystem::is_directory(audioRoot, ec))
+        return audioRoot;
+
+    const std::filesystem::path platformAudioRoot = gameRoot / "xbox360" / "audio";
+    if (std::filesystem::is_directory(platformAudioRoot, ec))
+        return platformAudioRoot;
+
+    return audioRoot;
+}
+#endif
+
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK) || defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT)
 static bool SwitchAuditFileExists(const std::filesystem::path& path)
 {
     const std::string pathString = path.string();
@@ -291,7 +307,11 @@ void KiSystemStartup()
     const auto gameRoot = GetGamePath() / "game";
     const std::string commonPath = (const char*)(gameRoot / "common").u8string().c_str();
     const std::string platformPath = (const char*)(gameRoot / "xbox360").u8string().c_str();
+#if defined(__SWITCH__)
+    const std::string audioPath = (const char*)SwitchSelectAudioRoot(gameRoot).u8string().c_str();
+#else
     const std::string audioPath = (const char*)(gameRoot / "audio").u8string().c_str();
+#endif
     
     // Register main root paths
     XamRootCreate("common", commonPath);
@@ -529,6 +549,7 @@ int main(int argc, char *argv[])
         const std::filesystem::path commonRoot = gameRoot / "common";
         const std::filesystem::path xbox360Root = gameRoot / "xbox360";
         const std::filesystem::path audioRoot = gameRoot / "audio";
+        const std::filesystem::path platformAudioRoot = xbox360Root / "audio";
         const std::filesystem::path commonRpf = gameRoot / "common.rpf";
         const std::filesystem::path xbox360Rpf = gameRoot / "xbox360.rpf";
         const std::filesystem::path audioRpf = gameRoot / "audio.rpf";
@@ -546,6 +567,7 @@ int main(int argc, char *argv[])
         const bool commonPresent = SwitchAuditDirectoryExists(commonRoot);
         const bool xbox360Present = SwitchAuditDirectoryExists(xbox360Root);
         const bool audioPresent = SwitchAuditDirectoryExists(audioRoot);
+        const bool platformAudioPresent = SwitchAuditDirectoryExists(platformAudioRoot);
         const bool commonRpfPresent = SwitchAuditFileExists(commonRpf);
         const bool xbox360RpfPresent = SwitchAuditFileExists(xbox360Rpf);
         const bool audioRpfPresent = SwitchAuditFileExists(audioRpf);
@@ -556,13 +578,15 @@ int main(int argc, char *argv[])
         SwitchAuditLogPresence("Switch content-layout audit: extracted common directory", commonRoot, commonPresent);
         SwitchAuditLogPresence("Switch content-layout audit: extracted xbox360 directory", xbox360Root, xbox360Present);
         SwitchAuditLogPresence("Switch content-layout audit: extracted audio directory", audioRoot, audioPresent);
+        SwitchAuditLogPresence("Switch content-layout audit: platform audio directory", platformAudioRoot, platformAudioPresent);
         SwitchAuditLogPresence("Switch content-layout audit: source common.rpf", commonRpf, commonRpfPresent);
         SwitchAuditLogPresence("Switch content-layout audit: source xbox360.rpf", xbox360Rpf, xbox360RpfPresent);
         SwitchAuditLogPresence("Switch content-layout audit: source audio.rpf", audioRpf, audioRpfPresent);
         SwitchAuditLogPresence("Switch content-layout audit: legacy RPF DUMP directory", legacyRpfDump, legacyRpfDumpPresent);
         SwitchAuditLogPresence("Switch content-layout audit: optional DLC directory", dlcRoot, dlcPresent);
 
-        const bool extractedReady = commonPresent && xbox360Present && audioPresent;
+        const bool extractedAudioReady = audioPresent || platformAudioPresent;
+        const bool extractedReady = commonPresent && xbox360Present && extractedAudioReady;
         const bool sourceArchivesPresent = commonRpfPresent && xbox360RpfPresent && audioRpfPresent;
         const char* summary = "content layout incomplete";
         const char* screenStatus =
@@ -578,10 +602,20 @@ int main(int argc, char *argv[])
         }
         else if (extractedReady)
         {
-            summary = "required extracted content directories are present";
-            screenStatus =
-                "default.xex and extracted content directories are present.\n"
-                "Host startup, module loading, and guest code were skipped.";
+            if (audioPresent)
+            {
+                summary = "required extracted content directories are present";
+                screenStatus =
+                    "default.xex and extracted content directories are present.\n"
+                    "Host startup, module loading, and guest code were skipped.";
+            }
+            else
+            {
+                summary = "required extracted content directories are present with platform audio fallback";
+                screenStatus =
+                    "default.xex, common, xbox360, and xbox360/audio are present.\n"
+                    "Host startup, module loading, and guest code were skipped.";
+            }
         }
         else if (sourceArchivesPresent)
         {
@@ -605,6 +639,114 @@ int main(int argc, char *argv[])
         LibertySwitchShowAuditDiagnostic(
             "Content layout audit",
             screenStatus,
+            gameRootText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
+
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT)
+    {
+        SwitchAuditLog("Switch VFS preflight audit: before Config::Load.");
+        Config::Load();
+        SwitchAuditLog("Switch VFS preflight audit: Config::Load returned.");
+
+        const std::filesystem::path contentRoot = GetGamePath();
+        const std::filesystem::path gameRoot = contentRoot / "game";
+        const std::filesystem::path commonRoot = gameRoot / "common";
+        const std::filesystem::path xbox360Root = gameRoot / "xbox360";
+        const std::filesystem::path audioRoot = SwitchSelectAudioRoot(gameRoot);
+
+        std::filesystem::path modulePath;
+        const bool modulePresent = Installer::checkGameInstall(contentRoot, modulePath);
+        SwitchAuditLogPresence("Switch VFS preflight audit: game/default.xex", modulePath, modulePresent);
+        SwitchAuditLog("Switch VFS preflight audit: game root:", gameRoot);
+        SwitchAuditLog("Switch VFS preflight audit: common root:", commonRoot);
+        SwitchAuditLog("Switch VFS preflight audit: platform root:", xbox360Root);
+        SwitchAuditLog("Switch VFS preflight audit: audio root:", audioRoot);
+
+        if (!modulePresent)
+        {
+            SwitchAuditLog("Switch VFS preflight audit: missing module; stopping before VFS initialization.");
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "VFS preflight",
+                "game/default.xex is missing.\n"
+                "VFS initialization, module loading, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 0;
+        }
+
+        const std::string commonPath = (const char*)commonRoot.u8string().c_str();
+        const std::string platformPath = (const char*)xbox360Root.u8string().c_str();
+        const std::string audioPath = (const char*)audioRoot.u8string().c_str();
+
+        SwitchAuditLog("Switch VFS preflight audit: skipping BuildPathCache; testing direct roots and VFS only.");
+        SwitchAuditLog("Switch VFS preflight audit: registering XAM roots.");
+        XamRootCreate("common", commonPath);
+        XamRootCreate("platform", platformPath);
+        XamRootCreate("xbox360", platformPath);
+        XamRootCreate("audio", audioPath);
+        SwitchAuditLog("Switch VFS preflight audit: XAM roots registered; initializing VFS.");
+        VFS::Initialize(gameRoot, false);
+        SwitchAuditLog("Switch VFS preflight audit: VFS::Initialize returned.");
+
+        const VFS::Stats stats = VFS::GetStats();
+        char statsMessage[192];
+        snprintf(
+            statsMessage,
+            sizeof(statsMessage),
+            "Switch VFS preflight audit: VFS stats files=%llu dirs=%llu bytes=%llu",
+            static_cast<unsigned long long>(stats.totalFiles),
+            static_cast<unsigned long long>(stats.totalDirectories),
+            static_cast<unsigned long long>(stats.totalBytes));
+        SwitchAuditLog(statsMessage);
+
+        struct ProbePath
+        {
+            const char* label;
+            const char* guestPath;
+        };
+
+        const ProbePath probes[] =
+        {
+            { "common script image", "common:\\data\\cdimages\\script.img" },
+            { "platform vehicles image", "platform:\\models\\cdimages\\vehicles.img" },
+            { "audio resident pack", "audio:\\sfx\\resident.rpf" },
+        };
+
+        bool allResolved = true;
+        for (const ProbePath& probe : probes)
+        {
+            const std::filesystem::path resolved = FileSystem::ResolvePath(probe.guestPath, false);
+            const bool present = !resolved.empty() && SwitchAuditFileExists(resolved);
+            allResolved = allResolved && present;
+
+            std::string message = std::string("Switch VFS preflight audit: ") + probe.label;
+            message += present ? " resolved:" : " missing:";
+            SwitchAuditLog(message.c_str(), resolved);
+
+            const std::filesystem::path vfsResolved = VFS::Resolve(probe.guestPath);
+            const bool vfsPresent = !vfsResolved.empty() && SwitchAuditFileExists(vfsResolved);
+            std::string vfsMessage = std::string("Switch VFS preflight audit: VFS ") + probe.label;
+            vfsMessage += vfsPresent ? " resolved:" : " missing:";
+            SwitchAuditLog(vfsMessage.c_str(), vfsResolved);
+        }
+
+        SwitchAuditLog(
+            allResolved
+                ? "Switch VFS preflight audit summary: representative paths resolved; stopping before host startup, module loading, and guest code."
+                : "Switch VFS preflight audit summary: one or more representative paths are missing; stopping before host startup, module loading, and guest code.");
+
+        const std::string gameRootText = gameRoot.string();
+        LibertySwitchShowAuditDiagnostic(
+            "VFS preflight",
+            allResolved
+                ? "Representative content paths resolved.\nHost startup, module loading, and guest code were skipped."
+                : "One or more representative content paths are missing.\nHost startup, module loading, and guest code were skipped.",
             gameRootText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
