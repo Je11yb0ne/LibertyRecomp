@@ -1408,3 +1408,139 @@ Current conclusion:
 - The next practical Switch audit step is a module-load preflight that still stops before guest code until Switch guest memory/page backing is ready.
 - Host startup, module loading, video/audio setup, and guest code are still skipped.
 - This does not make the Switch build playable.
+
+## 2026-06-15 Update: Module Metadata Preflight Audit
+
+Added a Switch-only module-load preflight audit stop:
+
+- `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT`
+
+Runtime behavior:
+
+- Runs after Switch SD/RomFS startup.
+- Calls `Config::Load()`.
+- Calls `Installer::checkGameInstall(GetGamePath(), modulePath)`.
+- Registers XAM `common:`, `platform:`, `xbox360:`, and `audio:` roots.
+- Builds `BuildPathCache(gameRoot)`.
+- Initializes VFS with the recursive index scan.
+- Reads `sdmc:/switch/LibertyRecomp/game/default.xex`.
+- Validates lightweight XEX2 header/security/file-format/resource/import metadata.
+- Stops before full `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, video/audio setup, `GuestThread::Start()`, or generated PPC code.
+
+This is an audit boundary only. It does not make the Switch artifact playable.
+
+Fresh default baseline before this stage:
+
+- Default ExeFS Build ID:
+  `a535efd5cac29d1968d0afb08d5de82e2033955f`
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-36-33.log`
+- Result:
+  - Reached `main()`.
+  - Stopped at missing `sdmc:/switch/LibertyRecomp/game/default.xex`.
+  - Did not enter VFS, module-load preflight, or guest code.
+  - `readelf -dW` reported no `TEXTREL`.
+
+First full-image-parse attempt:
+
+- Build ID:
+  `3d5ab2fd65331f2d2db15c89b79ad1ca15b4dbf6`
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-40-54.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - Temporary links were removed after the run.
+- Result:
+  - Reached Config, install check, path cache, XAM roots, and VFS recursive indexing.
+  - Read `11841536` bytes from `default.xex`.
+  - Last preflight line was `Switch module-load preflight audit: parsing module image.`
+  - No summary was reached within the 240-second Ryujinx test window.
+  - No `Unknown MRS`, `gcspr`, `Unhandled exception`, or `InvalidMemory` line was found in the selected output.
+
+Important first-attempt lines:
+
+```text
+[Switch] Switch module-load preflight audit: BuildPathCache returned entries=200
+[Switch][VFS] RebuildIndex complete entries=200 files=169 dirs=31
+[Switch] Switch module-load preflight audit: reading module: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch module-load preflight audit: module bytes=11841536
+[Switch] Switch module-load preflight audit: parsing module image.
+```
+
+Root-cause direction:
+
+- Full `Image::ParseImage()` is too broad as the next audit boundary.
+- It enters the XenonUtils XEX load path, including decryption/decompression and import thunk patching, before returning an `Image`.
+- To keep the Switch audit incremental and avoid modifying the dirty `tools/XenonRecomp` submodule, the preflight was narrowed to Switch-local lightweight XEX2 metadata parsing in `main.cpp`.
+
+Lightweight module metadata preflight ExeFS:
+
+- Build ID:
+  `92fe5a27c54121fc0dd73f3bcf81bab270eef09f`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+
+Ryujinx real-layout module metadata preflight run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-47-50.log`
+- Staging method:
+  - Temporary hardlinks in Ryujinx SD for `default.xex`, `common.rpf`, `xbox360.rpf`, and `audio.rpf`.
+  - Temporary junctions in Ryujinx SD for `common` and `xbox360`.
+  - No fake top-level `audio` directory.
+  - Temporary links were removed after the run.
+
+Important lines:
+
+```text
+[Switch] Switch module-load preflight audit: BuildPathCache returned entries=200
+[Switch][VFS] RebuildIndex complete entries=200 files=169 dirs=31
+[Switch] Switch module-load preflight audit: reading module: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch module-load preflight audit: module bytes=11841536
+[Switch] Switch module-load preflight audit: xex moduleFlags=0x00000001 headerSize=0x3000 security=0x90 optHeaders=15 imageSize=0x11F0000 load=0x82000000 imageBase=0x82000000 entry=0x829A0860 resource=0x83150000+0x0009BA69 fileFormat enc=1 comp=1 imports=2 pages=287
+[Switch] Switch module-load preflight audit summary: XEX metadata parsed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.
+```
+
+Default ExeFS rebuild after the module metadata preflight changes:
+
+- Default ExeFS Build ID:
+  `06726e9a15c3c4a05df9ed3e35d93961ed5cc581`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` reported no `TEXTREL`.
+- Ryujinx default ExeFS smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_22-49-32.log`
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+Current conclusion:
+
+- The Switch audit can now reach a reproducible module metadata boundary with the user's real staged GTA IV layout.
+- The module metadata confirms the staged `default.xex` is XEX2, encrypted, basic-compressed, loaded at `0x82000000`, and has entry `0x829A0860`.
+- Full `Image::ParseImage()` is the next host-side blocker to instrument or replace, but the current stage stops before that path.
+- Guest-memory writes, video/audio setup, `GuestThread::Start()`, generated PPC code, and gameplay are still skipped.
+- This does not make the Switch build playable.

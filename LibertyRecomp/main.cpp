@@ -15,6 +15,7 @@
 #include <file.h>
 #include <vector>
 #include <image.h>
+#include <xex.h>
 #include <apu/audio.h>
 #include <hid/hid.h>
 #include <user/config.h>
@@ -153,7 +154,7 @@ static std::filesystem::path SwitchSelectAudioRoot(const std::filesystem::path& 
 }
 #endif
 
-#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK) || defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT)
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONTENT_LAYOUT_CHECK) || defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT) || defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT)
 static bool SwitchAuditFileExists(const std::filesystem::path& path)
 {
     const std::string pathString = path.string();
@@ -757,6 +758,185 @@ int main(int argc, char *argv[])
                 ? "Representative content paths resolved.\nHost startup, module loading, and guest code were skipped."
                 : "One or more representative content paths are missing.\nHost startup, module loading, and guest code were skipped.",
             gameRootText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
+
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT)
+    {
+        SwitchAuditLog("Switch module-load preflight audit: before Config::Load.");
+        Config::Load();
+        SwitchAuditLog("Switch module-load preflight audit: Config::Load returned.");
+
+        const std::filesystem::path contentRoot = GetGamePath();
+        const std::filesystem::path gameRoot = contentRoot / "game";
+        const std::filesystem::path commonRoot = gameRoot / "common";
+        const std::filesystem::path xbox360Root = gameRoot / "xbox360";
+        const std::filesystem::path audioRoot = SwitchSelectAudioRoot(gameRoot);
+
+        std::filesystem::path modulePath;
+        const bool modulePresent = Installer::checkGameInstall(contentRoot, modulePath);
+        SwitchAuditLogPresence("Switch module-load preflight audit: game/default.xex", modulePath, modulePresent);
+        SwitchAuditLog("Switch module-load preflight audit: game root:", gameRoot);
+        SwitchAuditLog("Switch module-load preflight audit: common root:", commonRoot);
+        SwitchAuditLog("Switch module-load preflight audit: platform root:", xbox360Root);
+        SwitchAuditLog("Switch module-load preflight audit: audio root:", audioRoot);
+
+        if (!modulePresent)
+        {
+            SwitchAuditLog("Switch module-load preflight audit: missing module; stopping before VFS and module parsing.");
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module preflight",
+                "game/default.xex is missing.\n"
+                "VFS initialization, module parsing, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 0;
+        }
+
+        const std::string commonPath = (const char*)commonRoot.u8string().c_str();
+        const std::string platformPath = (const char*)xbox360Root.u8string().c_str();
+        const std::string audioPath = (const char*)audioRoot.u8string().c_str();
+
+        SwitchAuditLog("Switch module-load preflight audit: building path cache.");
+        const size_t pathCacheEntries = BuildPathCache(gameRoot.string());
+        char pathCacheMessage[128];
+        snprintf(
+            pathCacheMessage,
+            sizeof(pathCacheMessage),
+            "Switch module-load preflight audit: BuildPathCache returned entries=%llu",
+            static_cast<unsigned long long>(pathCacheEntries));
+        SwitchAuditLog(pathCacheMessage);
+
+        SwitchAuditLog("Switch module-load preflight audit: registering XAM roots.");
+        XamRootCreate("common", commonPath);
+        XamRootCreate("platform", platformPath);
+        XamRootCreate("xbox360", platformPath);
+        XamRootCreate("audio", audioPath);
+        SwitchAuditLog("Switch module-load preflight audit: XAM roots registered; initializing VFS with index scan.");
+        VFS::Initialize(gameRoot);
+        SwitchAuditLog("Switch module-load preflight audit: VFS::Initialize returned.");
+
+        const VFS::Stats stats = VFS::GetStats();
+        char statsMessage[192];
+        snprintf(
+            statsMessage,
+            sizeof(statsMessage),
+            "Switch module-load preflight audit: VFS stats files=%llu dirs=%llu bytes=%llu",
+            static_cast<unsigned long long>(stats.totalFiles),
+            static_cast<unsigned long long>(stats.totalDirectories),
+            static_cast<unsigned long long>(stats.totalBytes));
+        SwitchAuditLog(statsMessage);
+
+        SwitchAuditLog("Switch module-load preflight audit: reading module:", modulePath);
+        const auto loadResult = LoadFile(modulePath);
+        if (loadResult.empty())
+        {
+            SwitchAuditLog("Switch module-load preflight audit: LoadFile returned no data; stopping before guest-memory writes:", modulePath);
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module preflight failed",
+                "default.xex could not be read.\n"
+                "Guest-memory writes and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
+        char moduleSizeMessage[160];
+        snprintf(
+            moduleSizeMessage,
+            sizeof(moduleSizeMessage),
+            "Switch module-load preflight audit: module bytes=%llu",
+            static_cast<unsigned long long>(loadResult.size()));
+        SwitchAuditLog(moduleSizeMessage);
+
+        const bool xexMagicPresent = loadResult.size() >= 4 &&
+            loadResult[0] == 'X' && loadResult[1] == 'E' && loadResult[2] == 'X' && loadResult[3] == '2';
+        if (!xexMagicPresent)
+        {
+            SwitchAuditLog("Switch module-load preflight audit: module is not XEX2; stopping before Image::ParseImage:", modulePath);
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module preflight failed",
+                "default.xex did not start with XEX2 magic.\n"
+                "Image parsing, guest-memory writes, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
+        const auto* xexHeader = reinterpret_cast<const Xex2Header*>(loadResult.data());
+        const uint32_t headerSize = xexHeader->headerSize;
+        const uint32_t securityOffset = xexHeader->securityOffset;
+        const uint32_t headerCount = xexHeader->headerCount;
+        const uint32_t minimumOptionalHeaderEnd = sizeof(Xex2Header) + headerCount * sizeof(Xex2OptHeader);
+        if (headerSize > loadResult.size() ||
+            securityOffset + sizeof(Xex2SecurityInfo) > loadResult.size() ||
+            minimumOptionalHeaderEnd > headerSize)
+        {
+            SwitchAuditLog("Switch module-load preflight audit: XEX header bounds are invalid; stopping before Image::ParseImage:", modulePath);
+            const std::string modulePathText = modulePath.string();
+            LibertySwitchShowAuditDiagnostic(
+                "Module preflight failed",
+                "default.xex header bounds were invalid.\n"
+                "Image parsing, guest-memory writes, and guest code were skipped.",
+                modulePathText.c_str(),
+                SWITCH_AUDIT_LOG_PATH);
+            SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+            return 1;
+        }
+
+        const auto* securityInfo = reinterpret_cast<const Xex2SecurityInfo*>(loadResult.data() + securityOffset);
+        const auto* fileFormatInfo = reinterpret_cast<const Xex2OptFileFormatInfo*>(getOptHeaderPtr(loadResult.data(), XEX_HEADER_FILE_FORMAT_INFO));
+        const auto* imageBasePtr = reinterpret_cast<const be<uint32_t>*>(getOptHeaderPtr(loadResult.data(), XEX_HEADER_IMAGE_BASE_ADDRESS));
+        const auto* entryPointPtr = reinterpret_cast<const be<uint32_t>*>(getOptHeaderPtr(loadResult.data(), XEX_HEADER_ENTRY_POINT));
+        const auto* resourceInfo = reinterpret_cast<const Xex2ResourceInfo*>(getOptHeaderPtr(loadResult.data(), XEX_HEADER_RESOURCE_INFO));
+        const auto* importsInfo = reinterpret_cast<const Xex2ImportHeader*>(getOptHeaderPtr(loadResult.data(), XEX_HEADER_IMPORT_LIBRARIES));
+
+        const uint32_t imageBase = imageBasePtr != nullptr ? static_cast<uint32_t>(*imageBasePtr) : static_cast<uint32_t>(securityInfo->loadAddress);
+        const uint32_t entryPoint = entryPointPtr != nullptr ? static_cast<uint32_t>(*entryPointPtr) : 0;
+        const uint32_t resourceOffset = resourceInfo != nullptr ? static_cast<uint32_t>(resourceInfo->offset) : 0;
+        const uint32_t resourceSize = resourceInfo != nullptr ? static_cast<uint32_t>(resourceInfo->sizeOfData) : 0;
+        const int32_t encryptionType = fileFormatInfo != nullptr ? static_cast<int32_t>(static_cast<uint16_t>(fileFormatInfo->encryptionType)) : -1;
+        const int32_t compressionType = fileFormatInfo != nullptr ? static_cast<int32_t>(static_cast<uint16_t>(fileFormatInfo->compressionType)) : -1;
+        const uint32_t importCount = importsInfo != nullptr ? static_cast<uint32_t>(importsInfo->numImports) : 0;
+
+        char imageMessage[384];
+        snprintf(
+            imageMessage,
+            sizeof(imageMessage),
+            "Switch module-load preflight audit: xex moduleFlags=0x%08X headerSize=0x%X security=0x%X optHeaders=%u imageSize=0x%X load=0x%08X imageBase=0x%08X entry=0x%08X resource=0x%08X+0x%08X fileFormat enc=%d comp=%d imports=%u pages=%u",
+            static_cast<uint32_t>(xexHeader->moduleFlags),
+            headerSize,
+            securityOffset,
+            headerCount,
+            static_cast<uint32_t>(securityInfo->imageSize),
+            static_cast<uint32_t>(securityInfo->loadAddress),
+            imageBase,
+            entryPoint,
+            resourceOffset,
+            resourceSize,
+            encryptionType,
+            compressionType,
+            importCount,
+            static_cast<uint32_t>(securityInfo->pageDescriptorCount));
+        SwitchAuditLog(imageMessage);
+
+        SwitchAuditLog("Switch module-load preflight audit summary: XEX metadata parsed; stopping before Image::ParseImage, LdrLoadModule guest-memory writes, and GuestThread::Start.");
+
+        const std::string modulePathText = modulePath.string();
+        LibertySwitchShowAuditDiagnostic(
+            "Module preflight",
+            "default.xex metadata was parsed.\n"
+            "Full image parsing, guest-memory writes, and guest code were skipped.",
+            modulePathText.c_str(),
             SWITCH_AUDIT_LOG_PATH);
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
         return 0;

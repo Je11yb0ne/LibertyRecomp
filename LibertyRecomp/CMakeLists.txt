@@ -26,6 +26,9 @@ if (LIBERTY_RECOMP_SWITCH)
     option(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT
         "Stop the Switch audit build after initializing VFS and resolving representative content paths."
         OFF)
+    option(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT
+        "Stop the Switch audit build after reading and parsing the guest module, before guest-memory writes."
+        OFF)
     option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS
         "Skip generated function-table initialization in the Switch sparse memory audit backend."
         ${LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP})
@@ -516,6 +519,10 @@ if (LIBERTY_RECOMP_SWITCH)
     if (LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT)
         set_property(SOURCE "main.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
             LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_VFS_PREFLIGHT)
+    endif()
+    if (LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT)
+        set_property(SOURCE "main.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
+            LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_MODULE_LOAD_PREFLIGHT)
     endif()
     if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
         list(APPEND LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS
