@@ -766,3 +766,102 @@ Current conclusion:
 - The retained-function-table audit can now map a stable startup set of `4 KiB` low memory, `64 KiB` XMA I/O, `15 MiB` physical heap, and the full scanned image/function-table range.
 - `16 MiB` physical heap fails when the full scanned image/function table is also retained.
 - The next runtime design step is still demand/page-backed guest memory: full eager low/physical mapping remains too expensive, but the Alias-region contiguous base model remains viable for generated code if pages can be committed selectively.
+
+## 2026-06-15 Update: Startup-Memory / Xenon-Init Audit
+
+Added a narrower Switch audit mode:
+
+- `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT`
+
+This mode is ExeFS/NPDM audit-only. It does not enter guest code and does not make the Switch artifact playable.
+
+Runtime behavior:
+
+- `Memory::Memory()` maps only the startup ranges needed for this phase:
+  - low guest memory: `0x30000`
+  - XMA I/O window: `0x10000`
+  - physical heap window: `0xF00000`
+  - Xenon fixed memory span: `0x82000000..0x831F0000` (`0x11F0000` bytes)
+- Generated function-table insertion is skipped in this mode.
+- `main()` bypasses host config, content preflight, installer, module loading, video creation, and guest thread startup.
+- `main()` calls `KiSystemStartup()` only to run `g_userHeap.Init()` and `InitializeXenonMemoryRegions()`, then stops on a visible diagnostic.
+
+Failed mapping-budget attempts before narrowing the image/table range:
+
+| Low window | Physical window | Build ID | Ryujinx log | Result |
+| --- | --- | --- | --- | --- |
+| `0x30000` | `0xF00000` | `037ff1d12bd92cd4dfcdb529f55a1919c09c031f` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_11-35-16.log` | image/function-table map failed with `0x0000D001` |
+| `0x30000` | `0xE00000` | `c5ce87c3a9e9040f12b3efaf3ed276e3f89d4c1f` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_11-38-00.log` | image/function-table map failed with `0x0000D001` |
+| `0x30000` | `0xC00000` | `10ef8e9fb17761d0f7af54df92b7e4e5532b11a6` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_11-43-25.log` | image/function-table map failed with `0x0000D001` |
+| `0x30000` | `0x800000` | `35a8a278ea3e179dcf6771826dc40460b3883df7` | `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_11-46-18.log` | image/function-table map failed with `0x0000D001` |
+
+Root cause for those failures:
+
+- The startup-memory audit initially still mapped the full scanned image/function-table range (`0x24A0000`) and retained function-table requirements that are not needed just to test `g_userHeap.Init()` plus Xenon fixed memory zeroing.
+- Adding only `0x30000` low memory was enough to push the full function-table mapping over the practical `0x0000D001` boundary in this Ryujinx/NPDM setup.
+
+Intermediate host-config finding:
+
+- Build ID `bf80ba271b286653a1cafae185371755ea453619` mapped the narrowed Xenon fixed span successfully but continued into normal `Config::Load()`.
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_11-57-47.log`
+- Result:
+  - `Memory::Memory()` completed startup-Xenon mapping.
+  - `main()` reached `Startup-memory audit: before Config::Load.`
+  - Ryujinx threw `Unknown MRS 0xD53B2521`, the known GCC 15 `gcspr_el0` unwinder/toolchain blocker, before `Config::Load()` returned.
+- This is a host config / simulator-toolchain audit blocker, not evidence of guest gameplay behavior.
+
+Successful startup-memory/Xenon-init audit:
+
+- Build ID:
+  `539c9829646e4f6e847b882ee8468d40cc579702`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-guest-memory-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT=ON`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS=OFF`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE=0x30000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE=0xF00000`
+  - `LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE=`
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_12-03-45.log`
+- SD log:
+  `D:\Games\Ryujinx\Ryujinx\portable\sdcard\switch\LibertyRecomp\LibertyRecomp.log`
+- `readelf -dW` still reports no `TEXTREL`.
+
+Default package rebuild after these source changes:
+
+- Default ExeFS Build ID:
+  `e64961a3d8a222f6302772836b21d3cc2521996f`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Result:
+  - `LibertyRecompExeFs` built successfully.
+  - `readelf -dW` still reports no `TEXTREL`.
+  - This was a build/metadata revalidation only, not a gameplay test.
+
+Important Ryujinx lines:
+
+```text
+[Switch][Memory] Xenon fixed memory mapped_size=0x11F0000
+[Switch][Memory] map ok low guest heap
+[Switch][Memory] map ok XMA I/O window
+[Switch][Memory] map ok physical guest heap
+[Switch][Memory] map ok Xenon fixed memory
+[Switch][Memory] allocate success
+[Switch][Memory] startup-Xenon audit; skipping function mappings
+[Switch] Switch startup-memory audit mapped guest memory; running KiSystemStartup heap/Xenon initialization only.
+[InitializeXenonMemoryRegions] [Xenon] Zeroing stream pool: 0x82000000-0x82020000 (128 KB)
+[InitializeXenonMemoryRegions] [Xenon] Zeroing XEX data region: 0x82020000-0x82120000 (1 MB)
+[InitializeXenonMemoryRegions] [Xenon] Zeroing kernel runtime: 0x82A90000-0x82AA0000 (64 KB)
+[InitializeXenonMemoryRegions] [Xenon] Zeroing static data (BSS): 0x83000000-0x831F0000 (1.99 MB)
+[Switch] KiSystemStartup heap/Xenon memory initialization completed; stopping before host config, content, module load, and guest code.
+```
+
+Current conclusion:
+
+- ExeFS/NPDM sparse Alias-region mapping can now support a minimal early-runtime container through `KiSystemStartup()` heap/Xenon fixed-memory initialization.
+- This still does not load `default.xex`, does not initialize content/audio/video, does not insert generated function mappings, and does not run guest code.
+- The next practical Switch blocker is deciding how to advance host config/content startup without relying on C++ exception/unwind paths that trigger the Ryujinx `gcspr_el0` limitation, then defining the real `sdmc:/switch/LibertyRecomp` game-content layout for module loading.

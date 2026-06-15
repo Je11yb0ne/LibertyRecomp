@@ -189,6 +189,11 @@ void KiSystemStartup()
     // Must happen BEFORE any game code executes to prevent corruption.
     InitializeXenonMemoryRegions(g_memory.base);
 
+#if defined(__SWITCH__) && defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    SwitchAuditLog("KiSystemStartup heap and Xenon fixed memory regions initialized; returning before save/content/audio startup.");
+    return;
+#endif
+
     // Initialize save system early - creates directories and registers save content
     SaveSystem::Initialize();
 
@@ -470,6 +475,32 @@ int main(int argc, char *argv[])
     return 0;
 #endif
 
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    if (g_memory.base == nullptr)
+    {
+        SwitchAuditLog("Switch startup-memory audit failed; Memory::base is null; stopping before host startup.");
+        LibertySwitchShowAuditDiagnostic(
+            "Startup memory audit failed",
+            "Memory::base is null after startup.\n"
+            "Host startup and guest code were skipped.",
+            SWITCH_AUDIT_CONTENT_ROOT,
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+
+    SwitchAuditLog("Switch startup-memory audit mapped guest memory; running KiSystemStartup heap/Xenon initialization only.");
+    KiSystemStartup();
+    SwitchAuditLog("KiSystemStartup heap/Xenon memory initialization completed; stopping before host config, content, module load, and guest code.");
+    LibertySwitchShowAuditDiagnostic(
+        "Startup memory audit",
+        "KiSystemStartup heap/Xenon memory initialization completed.\n"
+        "Host config, content checks, module loading, and guest code were skipped.",
+        SWITCH_AUDIT_CONTENT_ROOT,
+        SWITCH_AUDIT_LOG_PATH);
+    SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+    return 0;
+#else
     if (!SwitchAuditFileExists(SWITCH_AUDIT_MODULE_PATH))
     {
         SwitchAuditLog("Early preflight missing game executable:", SWITCH_AUDIT_MODULE_PATH);
@@ -485,6 +516,7 @@ int main(int argc, char *argv[])
         SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
         return 0;
     }
+#endif
 
     if (g_memory.base == nullptr)
     {
@@ -632,6 +664,7 @@ int main(int argc, char *argv[])
     bool runInstallerWizard = forceInstaller || forceDLCInstaller || !isGameInstalled;
 
 #ifdef __SWITCH__
+#if !defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
     if (!isGameInstalled)
     {
         SwitchAuditLog("Game install is missing; expected module:", modulePath);
@@ -648,7 +681,8 @@ int main(int argc, char *argv[])
         return 0;
     }
 #endif
-    
+#endif
+
     // TEMPORARY: Force installer UI to always show for preview
     // TODO: Remove this line after UI preview is done
     // runInstallerWizard = true;  // DISABLED - respect actual install check

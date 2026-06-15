@@ -43,9 +43,11 @@ This is not a playable Switch port yet. The current goal is to make the codebase
 - This NRO is not playable. It is only an ELF -> NRO packaging/audit milestone with empty placeholder RomFS and many runtime stubs still active.
 - The latest successful Ninja run includes basic `romfs:`/`sdmc:` startup, `sdmc:` already-mounted detection, Switch pre-main breadcrumbs, SD logging, a visible missing-content diagnostic path, and a guard that stops before host/guest startup while Switch guest memory is disabled.
 - Latest confirmed default full NRO/ExeFS Build ID: `4a5ab140d5a54352bcf968b26ea84fc4e20e64c0`.
+- Latest default full ExeFS rebuild after the startup-memory audit changes: Build ID `e64961a3d8a222f6302772836b21d3cc2521996f`; build and `readelf -dW` metadata were verified, but this rebuild was not a gameplay test.
 - Latest confirmed guest-memory audit ExeFS Build ID: `04e2f6197b65eb00c204af28d1d6e791718e779d`.
 - Latest narrow guest-memory/function-table audit ExeFS Build ID: `df2f6f7d433534156c4b0f6a19017e55d5302406`. This uses `4 KiB` low memory, `4 KiB` physical heap, full scanned image/function-table mapping, does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
 - Latest retained-function-table capacity audit ExeFS Build ID: `14293a41cb382b5346b04a31005477554db1cb56`. This uses `4 KiB` low memory, `15 MiB` physical heap, full scanned image/function-table mapping (`0x24A0000` bytes), does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
+- Latest startup-memory/Xenon-init audit ExeFS Build ID: `539c9829646e4f6e847b882ee8468d40cc579702`. This uses `0x30000` low memory, `15 MiB` physical heap, maps the Xenon fixed memory span `0x82000000..0x831F0000`, skips generated function-table insertion, bypasses host config/content/module loading, reaches `KiSystemStartup()` heap/Xenon initialization, then holds on a visible diagnostic. It is an audit variant only.
 - Latest visible boot probe Build ID: `d32811733bd2fe5c2e8172085c607fb1379c2903`.
 - Latest memory probe Build ID: `a528c82fb5a99ebcb4b794ad16cde8defac33fc5`.
 - Hardware retest of Build ID `5c7d712fb408d740c9c22f0ca6696fe65a96287b` cleanly returned to the Homebrew/Menu page instead of system-crashing. The user-provided software report `C:\Users\Jellybone\Desktop\ed9d2c85-a785-9c48-5f81-92a5be07987a` has `ErrorCode=2128-0051`, `AbortFlag=true`, `ApplicationAbortFlag=true`, and `CreateProcessFailureFlag=false`, with no PC/LR fatal context.
@@ -173,6 +175,8 @@ Expected next phase:
   - Ryujinx Canary 1.3.269 is now useful for SD-log/main-entry/content-preflight smoke checks after existing `sdmc:` detection, but hardware remains the final check for hold behavior and Sphaira/front-end differences.
 - Start replacing stubs tracked in `SWITCH_STUBS.md` with real Switch runtime systems, starting with graphics backend, guest memory/page protection, filesystem/VFS, and audio.
 - For guest memory, the non-NRO ExeFS/NPDM path has proven `SystemResourceSize` and Alias-region physical mapping in the full process, but the retained-function-table audit currently only supports a small committed startup set (`4 KiB` low + up to `15 MiB` physical + full scanned image/function table). Next step is to turn this into a real demand/page-backed guest memory design; full eager low/physical mapping still exceeds the current practical budget.
+- A separate startup-memory audit now proves an even narrower early-runtime milestone: `0x30000` low memory + `15 MiB` physical heap + Xenon fixed memory mapping can complete `KiSystemStartup()` heap/Xenon initialization when host config/content/module loading and generated function-table insertion are intentionally skipped.
+- The next runtime blocker after that milestone is not gameplay: the normal host config path can enter GCC's C++ unwinder under Ryujinx (`Unknown MRS ... gcspr_el0`) during `Config::Load()`. Treat this as a simulator/toolchain/config-path audit item before pushing farther through host startup.
 
 ## Reference Repos
 

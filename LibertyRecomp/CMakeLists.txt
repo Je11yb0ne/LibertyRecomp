@@ -11,6 +11,9 @@ endif()
 if (LIBERTY_RECOMP_SWITCH)
     option(LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT "Enable the Switch sparse guest-memory audit backend." OFF)
     option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP "Stop the Switch audit build after guest-memory mapping." OFF)
+    option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT
+        "Stop the Switch audit build after KiSystemStartup heap/Xenon memory initialization."
+        OFF)
     option(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS
         "Skip generated function-table initialization in the Switch sparse memory audit backend."
         ${LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP})
@@ -483,12 +486,17 @@ if (LIBERTY_RECOMP_SWITCH)
     if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
         target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
     endif()
+    if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+        target_compile_definitions(LibertyRecomp PRIVATE LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    endif()
     if (LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
         list(APPEND LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS
             LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
     endif()
     if (LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS)
         set_source_files_properties("kernel/memory.cpp" PROPERTIES
+            COMPILE_DEFINITIONS "${LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS}")
+        set_source_files_properties("kernel/heap.cpp" PROPERTIES
             COMPILE_DEFINITIONS "${LIBERTY_RECOMP_SWITCH_MEMORY_AUDIT_DEFINITIONS}")
     endif()
 

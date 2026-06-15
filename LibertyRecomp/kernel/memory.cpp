@@ -127,6 +127,11 @@ static size_t GetSwitchImageAndFunctionTableSize() noexcept
 
 #if defined(LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE)
     return LIBERTY_RECOMP_SWITCH_GUEST_IMAGE_TABLE_AUDIT_SIZE;
+#elif defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    constexpr size_t kXenonFixedEnd = AlignUp(0x831F0000ull, kSwitchPageSize);
+    const size_t mappedSize = kXenonFixedEnd - kImageAndFunctionTableBegin;
+    SwitchMemoryDebugf("[Switch][Memory] Xenon fixed memory mapped_size=0x%zX\n", mappedSize);
+    return mappedSize;
 #elif defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
     return kImageAndFunctionTableEnd - kImageAndFunctionTableBegin;
 #else
@@ -204,6 +209,11 @@ static uint8_t* AllocateSwitchGuestMemory() noexcept
 
     constexpr size_t kImageAndFunctionTableBegin = AlignDown(PPC_IMAGE_BASE, kSwitchPageSize);
     const size_t kImageAndFunctionTableSize = GetSwitchImageAndFunctionTableSize();
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    const char* imageMappingLabel = "Xenon fixed memory";
+#else
+    const char* imageMappingLabel = "image/function table";
+#endif
 
     if (!MapSwitchGuestRange(guestBase, 0, kSwitchGuestLowMemorySize, "low guest heap"))
         return nullptr;
@@ -223,7 +233,7 @@ static uint8_t* AllocateSwitchGuestMemory() noexcept
     if (!MapSwitchGuestRange(guestBase,
             kImageAndFunctionTableBegin,
             kImageAndFunctionTableSize,
-            "image/function table"))
+            imageMappingLabel))
         return nullptr;
 
     std::fprintf(stderr,
@@ -285,7 +295,10 @@ Memory::Memory()
     // Do not install a null-page guard in that case.
 #endif
 
-#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
+#if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP_AFTER_XENON_INIT)
+    SwitchMemoryDebug("[Switch][Memory] startup-Xenon audit; skipping function mappings\n");
+    return;
+#elif defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_SKIP_FUNCTION_MAPPINGS)
     SwitchMemoryDebug("[Switch][Memory] audit build; skipping function mappings\n");
     return;
 #endif

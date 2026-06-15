@@ -10,9 +10,16 @@ constexpr size_t USER_HEAP_BEGIN = 0x20000;
 // Switch audit builds use a sparse guest memory reservation. Keep o1heap inside
 // the ranges that Memory::Memory() maps until the real page-backed guest memory
 // implementation exists.
-constexpr size_t RESERVED_BEGIN = 64ull * 1024 * 1024;
+#if !defined(LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE)
+#define LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE 0x4000000ull
+#endif
+#if !defined(LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE)
+#define LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE 0x2000000ull
+#endif
+constexpr size_t RESERVED_BEGIN = LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE > USER_HEAP_BEGIN ?
+    LIBERTY_RECOMP_SWITCH_GUEST_LOW_MEMORY_AUDIT_SIZE : USER_HEAP_BEGIN;
 constexpr size_t RESERVED_END = 0x80000000;
-constexpr size_t PHYSICAL_HEAP_END = PPC_IMAGE_BASE;
+constexpr size_t PHYSICAL_HEAP_END = RESERVED_END + LIBERTY_RECOMP_SWITCH_GUEST_PHYSICAL_HEAP_AUDIT_SIZE;
 #else
 // XMA I/O only needs 64KB but we keep some reserved space for safety
 // Shrink reserved region to give more physical memory to the game
@@ -25,13 +32,33 @@ constexpr size_t PHYSICAL_HEAP_END = 0x100000000ull;
 
 void Heap::Init()
 {
-    heap = o1heapInit(g_memory.Translate(USER_HEAP_BEGIN), RESERVED_BEGIN - USER_HEAP_BEGIN);
-    physicalHeap = o1heapInit(g_memory.Translate(RESERVED_END), PHYSICAL_HEAP_END - RESERVED_END);
+    const size_t userHeapSize = RESERVED_BEGIN - USER_HEAP_BEGIN;
+    const size_t physicalHeapSize = PHYSICAL_HEAP_END - RESERVED_END;
+
+    heap = userHeapSize != 0 ? o1heapInit(g_memory.Translate(USER_HEAP_BEGIN), userHeapSize) : nullptr;
+    physicalHeap = physicalHeapSize != 0 ? o1heapInit(g_memory.Translate(RESERVED_END), physicalHeapSize) : nullptr;
+
+#ifdef LIBERTY_RECOMP_SWITCH
+    std::fprintf(stderr,
+        "[Switch][Heap] init user=[0x%zX,0x%zX) size=0x%zX ok=%u physical=[0x%zX,0x%zX) size=0x%zX ok=%u\n",
+        USER_HEAP_BEGIN,
+        RESERVED_BEGIN,
+        userHeapSize,
+        heap != nullptr ? 1u : 0u,
+        RESERVED_END,
+        PHYSICAL_HEAP_END,
+        physicalHeapSize,
+        physicalHeap != nullptr ? 1u : 0u);
+    std::fflush(stderr);
+#endif
 }
 
 void* Heap::Alloc(size_t size)
 {
     std::lock_guard lock(mutex);
+
+    if (heap == nullptr)
+        return nullptr;
 
     void* ptr = o1heapAllocate(heap, std::max<size_t>(1, size));
     if (ptr == nullptr)
@@ -57,6 +84,9 @@ void* Heap::AllocPhysical(size_t size, size_t alignment)
     alignment = alignment == 0 ? 0x1000 : std::max<size_t>(16, alignment);
 
     std::lock_guard lock(physicalMutex);
+
+    if (physicalHeap == nullptr)
+        return nullptr;
 
     void* ptr = o1heapAllocate(physicalHeap, size + alignment);
     if (ptr == nullptr)
