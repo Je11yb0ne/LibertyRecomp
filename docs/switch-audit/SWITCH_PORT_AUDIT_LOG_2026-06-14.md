@@ -970,3 +970,116 @@ Current conclusion:
 - The host config path can now be advanced past the specific duplicate-table TOML failure in Ryujinx.
 - This does not make the Switch build playable.
 - The next practical Switch work is to continue from host config toward content/module preflight and define the real `sdmc:/switch/LibertyRecomp` game-content layout, while keeping guest code blocked until guest memory/page backing is designed.
+
+## 2026-06-15 Update: Content / Install-Check Audit
+
+Added a Switch-only content preflight audit stop:
+
+- `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK`
+
+Runtime behavior:
+
+- Runs after Switch SD/RomFS startup.
+- Calls `Config::Load()`.
+- Calls `Installer::checkGameInstall(GetGamePath(), modulePath)`.
+- Logs the game root and resolved module path.
+- Stops before host startup, update checking, module loading, video/audio setup, or guest code.
+
+This is an audit boundary only. It does not make the Switch artifact playable.
+
+Install-check audit ExeFS:
+
+- Build ID:
+  `41fe5790406b362571818cc479cdc10337905172`
+- Artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+- Configure:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=ON`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` still reports no `TEXTREL`.
+
+Missing-content install-check run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_13-04-13.log`
+- Result:
+  - Reached `main()`.
+  - `Config::Load()` parsed and returned.
+  - `Installer::checkGameInstall()` resolved `sdmc:/switch/LibertyRecomp/game/default.xex`.
+  - The file was missing, so the audit stopped before host startup, module loading, or guest code.
+
+Important lines:
+
+```text
+[Switch] Switch install-check audit: before Config::Load.
+[Switch][Config] TOML parse returned
+[Switch][Config] Load complete
+[Switch] Switch install-check audit: Config::Load returned.
+[Switch] Switch install-check audit: game path: sdmc:/switch/LibertyRecomp
+[Switch] Switch install-check audit: Installer::checkGameInstall did not find module: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch install-check audit: stopping before host startup, module loading, and guest code.
+```
+
+Temporary-present install-check run:
+
+- Ryujinx log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_13-06-09.log`
+- A 4-byte temporary dummy `default.xex` was created only under Ryujinx's portable SD card to validate the positive file-exists branch.
+- The dummy file was removed after the run.
+- Result:
+  - `Installer::checkGameInstall()` reported the module present.
+  - The audit still stopped before host startup, module loading, or guest code.
+
+Important lines:
+
+```text
+[Switch] Switch install-check audit: before Config::Load.
+[Switch][Config] TOML parse returned
+[Switch][Config] Load complete
+[Switch] Switch install-check audit: Config::Load returned.
+[Switch] Switch install-check audit: game path: sdmc:/switch/LibertyRecomp
+[Switch] Switch install-check audit: Installer::checkGameInstall found module: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Switch install-check audit: stopping before host startup, module loading, and guest code.
+```
+
+Default package rebuild after the install-check source change:
+
+- Default ExeFS/NRO Build ID:
+  `7c5ed727f14026550070339b484eebf66494a12d`
+- Default NRO artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecomp.nro`
+  - Size: `160,929,730` bytes
+  - Last write time: `2026-06-15 13:14:13`
+- Default ExeFS artifact:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug\LibertyRecomp\LibertyRecompExefs.nsp`
+  - Size: `64,969,738` bytes
+  - Last write time: `2026-06-15 13:14:15`
+- Default cache state after restore:
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD=OFF`
+  - `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK=OFF`
+  - `LIBERTY_RECOMP_SWITCH_ENABLE_GUEST_MEMORY_AUDIT=OFF`
+- `readelf -dW` still reports no `TEXTREL`.
+- Ryujinx default smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-15_13-08-47.log`
+
+Default smoke result:
+
+```text
+[Switch] main entered.
+[Switch] Switch audit package startup; continuing to content preflight.
+[Switch] Early preflight missing game executable: sdmc:/switch/LibertyRecomp/game/default.xex
+[Switch] Expected SD layout root: sdmc:/switch/LibertyRecomp
+[Switch] Expected game content root: sdmc:/switch/LibertyRecomp/game
+```
+
+No `Unknown MRS`, `gcspr`, `Unhandled exception`, or `InvalidMemory` lines were found in the latest default smoke log.
+
+Ryujinx portable `enable_ptc` was temporarily set to `false` only during fresh audit package runs and restored to `true` after each run.
+
+Current conclusion:
+
+- The host config path and installer module-exists check now work as an isolated Switch audit boundary.
+- The expected SD module path is confirmed as `sdmc:/switch/LibertyRecomp/game/default.xex`.
+- A real `default.xex` plus extracted content can now be placed under the documented SD layout for the next content-loading audit, but guest code must remain blocked until Switch guest memory/page backing is designed.
+- This does not make the Switch build playable.

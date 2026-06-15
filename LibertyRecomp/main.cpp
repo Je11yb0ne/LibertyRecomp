@@ -464,6 +464,36 @@ int main(int argc, char *argv[])
     return 0;
 #endif
 
+#if defined(LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK)
+    {
+        SwitchAuditLog("Switch install-check audit: before Config::Load.");
+        Config::Load();
+        SwitchAuditLog("Switch install-check audit: Config::Load returned.");
+
+        const std::filesystem::path gamePath = GetGamePath();
+        SwitchAuditLog("Switch install-check audit: game path:", gamePath);
+
+        std::filesystem::path modulePath;
+        const bool isGameInstalled = Installer::checkGameInstall(gamePath, modulePath);
+        const std::string installStatus = isGameInstalled
+            ? "Switch install-check audit: Installer::checkGameInstall found module:"
+            : "Switch install-check audit: Installer::checkGameInstall did not find module:";
+        SwitchAuditLog(installStatus.c_str(), modulePath);
+        SwitchAuditLog("Switch install-check audit: stopping before host startup, module loading, and guest code.");
+
+        const std::string modulePathText = modulePath.string();
+        LibertySwitchShowAuditDiagnostic(
+            isGameInstalled ? "Content check" : "Missing game content",
+            isGameInstalled
+                ? "default.xex was found.\nHost startup, module loading, and guest code were skipped."
+                : "default.xex was not found.\nHost startup, module loading, and guest code were skipped.",
+            modulePathText.c_str(),
+            SWITCH_AUDIT_LOG_PATH);
+        SwitchAuditUnmount(switchRomfsMounted, switchSdmcMounted);
+        return 0;
+    }
+#endif
+
 #if defined(LIBERTY_RECOMP_SWITCH_GUEST_MEMORY_AUDIT_STOP)
     if (g_memory.base != nullptr)
     {

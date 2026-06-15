@@ -43,10 +43,12 @@ sdmc:/switch/LibertyRecomp/
 - If it is missing, the NRO shows `Missing game content` and stops before host startup or guest code.
 - If it exists, the current NRO still stops on `Guest memory disabled` because Switch guest memory is intentionally not enabled in the startup-container build.
 - A Switch config-audit build can be enabled with `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_CONFIG_LOAD`; it runs `Config::Load()` and stops before content preflight, host startup, module loading, or guest code.
+- A Switch install-check audit build can be enabled with `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK`; it runs `Config::Load()`, calls `Installer::checkGameInstall()`, logs whether `game/default.xex` exists, and stops before host startup, module loading, or guest code.
 
 ## Notes
 
 - The NRO creates `sdmc:/switch/LibertyRecomp` and `sdmc:/switch/LibertyRecomp/game` when SD is usable.
 - `Config::Save()` now groups settings by TOML section. Previous audit builds could generate duplicate `[Input]` tables; the current loader detects that old invalid form and rewrites defaults before parsing.
 - `default.xex` alone is not enough for gameplay. The extracted `game/common`, `game/xbox360`, and `game/audio` trees plus many runtime systems are still unresolved.
+- A temporary or dummy `default.xex` can only prove the current file-exists preflight path; it is not valid game content.
 - The final RomFS/SD split is not decided. Current RomFS is an empty packaging placeholder.

@@ -43,8 +43,9 @@ This is not a playable Switch port yet. The current goal is to make the codebase
 - This NRO is not playable. It is only an ELF -> NRO packaging/audit milestone with empty placeholder RomFS and many runtime stubs still active.
 - The latest successful Ninja run includes basic `romfs:`/`sdmc:` startup, `sdmc:` already-mounted detection, Switch pre-main breadcrumbs, SD logging, a visible missing-content diagnostic path, and a guard that stops before host/guest startup while Switch guest memory is disabled.
 - Latest confirmed default full NRO/ExeFS Build ID: `4a5ab140d5a54352bcf968b26ea84fc4e20e64c0`.
-- Latest default full ExeFS rebuild after the config-path audit changes: Build ID `2ed83a63ea6731734eac1f860600ebb1f20d690d`; build, `readelf -dW`, and a Ryujinx missing-content smoke test were verified. This was not a gameplay test.
+- Latest default full ExeFS/NRO rebuild after the install-check audit changes: Build ID `7c5ed727f14026550070339b484eebf66494a12d`; build, `readelf -dW`, and a Ryujinx missing-content smoke test were verified. This was not a gameplay test.
 - Latest Switch config-audit ExeFS Build ID: `e9ec24d9e526020fd8f8b1d392b7f60a69bcaeb9`. It verified that an old duplicate-table `config.toml` is rewritten without entering the TOML exception path, then a second run parses the rewritten config and returns from `Config::Load()`.
+- Latest Switch install-check audit ExeFS Build ID: `41fe5790406b362571818cc479cdc10337905172`. It verified that `Config::Load()` returns, `Installer::checkGameInstall()` checks `sdmc:/switch/LibertyRecomp/game/default.xex`, and both missing-file and temporary-present-file paths stop before host startup, module loading, or guest code.
 - Latest confirmed guest-memory audit ExeFS Build ID: `04e2f6197b65eb00c204af28d1d6e791718e779d`.
 - Latest narrow guest-memory/function-table audit ExeFS Build ID: `df2f6f7d433534156c4b0f6a19017e55d5302406`. This uses `4 KiB` low memory, `4 KiB` physical heap, full scanned image/function-table mapping, does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
 - Latest retained-function-table capacity audit ExeFS Build ID: `14293a41cb382b5346b04a31005477554db1cb56`. This uses `4 KiB` low memory, `15 MiB` physical heap, full scanned image/function-table mapping (`0x24A0000` bytes), does not skip function mappings, and stops in `main()` after successful mapping/function-table initialization. It is an audit variant only.
@@ -169,7 +170,7 @@ Expected next phase:
   - Define the final RomFS/SD layout and harden runtime mount/error behavior.
 - Keep both the produced ELF and NRO strictly as compile/audit artifacts until graphics, audio, guest memory, and runtime stubs are replaced.
 - Continue runtime crash audit from the new baseline:
-  - Latest default full NRO for optional hardware retest: `LibertyRecomp.nro`, Build ID `2ed83a63ea6731734eac1f860600ebb1f20d690d`.
+  - Latest default full NRO for optional hardware retest: `LibertyRecomp.nro`, Build ID `7c5ed727f14026550070339b484eebf66494a12d`.
   - Expected full-NRO behavior without game content: visible `Missing game content` diagnostic, no gameplay UI, no automatic return, and `sdmc:/switch/LibertyRecomp/LibertyRecomp.log` containing `Switch audit package startup; continuing to content preflight.` plus the missing `sdmc:/switch/LibertyRecomp/game/default.xex` path. Close manually from HOME.
   - Latest visible independent boot probe: `LibertyRecompBootProbe.nro`, Build ID `d32811733bd2fe5c2e8172085c607fb1379c2903`.
   - If the full NRO matches Ryujinx on hardware too, the next practical step is to formalize the SD content layout and continue reworking guest memory before any guest startup attempt.
@@ -178,6 +179,7 @@ Expected next phase:
 - For guest memory, the non-NRO ExeFS/NPDM path has proven `SystemResourceSize` and Alias-region physical mapping in the full process, but the retained-function-table audit currently only supports a small committed startup set (`4 KiB` low + up to `15 MiB` physical + full scanned image/function table). Next step is to turn this into a real demand/page-backed guest memory design; full eager low/physical mapping still exceeds the current practical budget.
 - A separate startup-memory audit now proves an even narrower early-runtime milestone: `0x30000` low memory + `15 MiB` physical heap + Xenon fixed memory mapping can complete `KiSystemStartup()` heap/Xenon initialization when host config/content/module loading and generated function-table insertion are intentionally skipped.
 - The host config-path blocker after that milestone was narrowed: `Config::Save()` had generated duplicate `[Input]` TOML tables, causing `toml::parse()` to throw and hit Ryujinx's GCC unwinder `gcspr_el0` limitation. The current code rewrites duplicate-table configs before parsing and writes grouped TOML sections. Next runtime work can continue toward content/module preflight, still without entering guest code until guest memory is ready.
+- The next content-path audit is now narrowed to `Installer::checkGameInstall()`: `LIBERTY_RECOMP_SWITCH_AUDIT_STOP_AFTER_INSTALL_CHECK` runs `Config::Load()`, checks the expected SD module path, and stops before host startup, module loading, update checking, video/audio setup, or guest code. This validates path/layout plumbing only; it is not a gameplay test.
 
 ## Reference Repos
 
