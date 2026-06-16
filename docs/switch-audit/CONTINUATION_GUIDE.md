@@ -97,6 +97,20 @@ Next Windows boundary: fix `sub_82857240` only after confirming a generated `__i
 - Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_82990EC0`. Smoke reached graphics backend attempts, MMIO/VBlank startup, VBlank tick `#1`, `sub_8284F880` exit, and `sub_8218BE28 #500`. Latest repeated frame is RVA `0x78652`; subtract the PE/map `0x1000` delta to map offset `0x77652`, which falls in `imports.cpp.obj` `sub_827EEB48 + 0x202`.
 - Next Windows boundary: inspect `sub_827EEB48` before editing. Because the repeated offset is not the previous `+0x6A` wrapper-entry pattern, confirm whether this is direct wrapper recursion, an internal recursive branch, or another call-path issue. Use IDA MCP if source/generated/map evidence is insufficient.
 
+2026-06-17 Windows wrapper continuation 3:
+
+- Confirmed `sub_827EEB48 + 0x202` was still the same wrapper-recursion class. The project-side wrapper called `sub_827EEB48(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_827EEB48)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.53.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_827EEB48(...)` declaration, added `extern "C" void __imp__sub_827EEB48(...)`, and changed only the logging wrapper body to call `__imp__sub_827EEB48(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-35d81ee6-1ada-4a47-b28c-4600043a71b0.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-46161e16-51f0-418c-8176-e3876f3e3ca5.log`
+- Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_827EEB48`. Smoke reached graphics backend attempts, MMIO/VBlank startup, VBlank tick `#1`, `sub_8284F880` exit, and `sub_8218BE28 #500`. Latest repeated frame is RVA `0x78B22`; subtract the PE/map `0x1000` delta to map offset `0x77B22`, which falls in `imports.cpp.obj` `sub_82197338 + 0x202`.
+- Next Windows boundary: inspect `sub_82197338`; likely another project-side logging wrapper, but confirm generated `__imp__sub_82197338` and the exact call pattern before editing.
+
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
 Previous stage result: lightweight XEX metadata preflight passes in Ryujinx with the real staged layout. It reads `default.xex`, validates the XEX2 header bounds, logs security/file-format/resource/import metadata, and stops before `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
@@ -151,7 +165,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_827EEB48 + 0x202`.
+1. Inspect the Windows stack overflow now landing in `sub_82197338 + 0x202`.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.
