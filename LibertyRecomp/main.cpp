@@ -1197,6 +1197,8 @@ void KiSystemStartup()
         std::_Exit(1);
     }
 
+    InitializeReXGlueMMIOBridge();
+
     g_userHeap.Init();
     
     // CRITICAL: Initialize Xbox 360 Xenon memory regions per memory contract

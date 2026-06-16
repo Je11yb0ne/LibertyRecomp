@@ -6,9 +6,53 @@ First complete the LibertyRecomp / GTA IV Nintendo Switch pre-guest audit baseli
 
 This is not a playable Switch port. All current Switch artifacts are audit packages.
 
+## Tooling Priority
+
+Use ReXGlue SDK as the primary runtime/codegen reference for ongoing LibertyRecomp / GTA IV work. The current project is already built around ReXGlue generated sources under `glue/rexglue-sdk-main/gta4-recomp/generated`, and wrapper/debugging work should treat generated `__imp__sub_x` implementations as the source of truth when a project-side strong wrapper hooks `sub_x`.
+
+Use XenonRecomp as an upstream translation/reference aid, not the main runtime integration target. Do not modify `tools/XenonRecomp` unless a stage explicitly proves a translation-side change is required and records why first.
+
+Local read-only references:
+
+- ReXGlue SDK: `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\rexglue-sdk`
+- Recompiled GTA IV samples: `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\Recompiled-Samples`
+- XenonRunner runtime sample: `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\XenonRunner`
+
 ## Current Stage Goal
 
-Review whether the Switch pre-guest audit baseline is now stable enough to pivot the mainline back to Windows runtime / unfinished upstream code. Switch work should remain available for regression checks and narrowly scoped pre-guest boundary fixes, but should not enter `GuestThread::Start()`, generated PPC code, video/audio startup, or gameplay execution unless the guide explicitly changes that boundary.
+Mainline work has pivoted back to Windows runtime / unfinished upstream code. Switch work remains paused at the verified pre-guest baseline and should be used only for regression checks, packaging/content-layout fixes, or deliberately scoped pre-guest blockers.
+
+The current Windows runtime bring-up target is to keep the legacy LibertyRecomp bootstrap aligned with ReXGlue generated code. ReXGlue generated `__imp__sub_x` implementations are the source of truth when project-side strong wrappers hook a generated function.
+
+Fresh Windows stage result:
+
+- Build directory: `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest`
+- Build command: `ninja -C ...\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result: success; the only reported warnings are the existing `vfs.h` block-comment warning, `imports.cpp` `uint32_t >= 4294967296` tautology, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Runtime bridge added: Windows legacy `Memory g_memory` bootstrap now installs a ReXGlue `MMIOHandler` bridge before guest startup and registers deterministic audit ranges for GPU `0x7FC80000`, XMA `0x7FEA0000`, and the broad Xbox MMIO window `0x7F000000..0x7FFFFFFF`.
+- Smoke evidence: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-ea18ff7d-16d0-4b66-80e6-578144840d5d.log` and `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-540e1019-b20d-4d67-ab0f-cf0e12d10fdf.log`.
+- Smoke result: process still exits with `0xC00000FD` stack overflow, but it now reaches `[MMIO-BRIDGE] write addr=0x7FC80714 reg=0x01C5 ...`, so the previous ReXGlue `MMIOHandler::CheckStore/CheckLoad` access violation is cleared.
+- Wrapper fixes in this stage include `sub_82850630`, `sub_829CB140`, `sub_829CAE68`, `sub_829D5948`, `sub_82851DD8`, `sub_8285BDC8`, `sub_8285BC60`, `sub_827DFE10`, `sub_8284FAD8`, and `sub_82859B80`, all redirected to generated `__imp__` implementations.
+- Current blocker after fresh smoke: stack overflow at RVA `0x6EEBA`, mapped by the current link map to `imports.cpp.obj` `sub_82857240 + 0x6A`.
+
+Next Windows boundary: fix `sub_82857240` only after confirming a generated `__imp__sub_82857240` exists, then rebuild and rerun the same smoke. Continue using this targeted pattern rather than broad automatic conversion.
+
+2026-06-16 Windows continuation update:
+
+- ReXGlue wiki review completed for `Runtime-Architecture-Overview.md`, `Generated-Code-Structure.md`, `Function-Overrides.md`, `Memory.md`, `Virtual-File-System.md`, `ReXApp.md`, and `Codegen-Pipeline-Overview.md`.
+- ReXGlue confirms the intended model: generated functions expose weak public aliases and strong `__imp__` implementations; project-side strong wrappers must call `__imp__sub_x` when they wrap rather than replace the generated body.
+- Windows legacy bootstrap work in this repo is still not a clean ReXApp migration. It currently bridges the old LibertyRecomp startup toward the ReXGlue generated/runtime model one blocker at a time.
+- Vulkan is the preferred Windows renderer direction for future Switch portability because ReXApp can inject graphics backends and because Vulkan-like renderer boundaries will be easier to translate toward a Switch-specific backend than D3D12-only work. Do not assume desktop Vulkan code can run on Switch unchanged; Switch still needs a real deko3d/NVN-style backend or a deliberate portability layer.
+- Additional wrapper call-through fixes verified in this continuation: `sub_827EED88`, `sub_827EB748`, `sub_827EAE38`, and `sub_82897760` now call their generated `__imp__` implementations instead of recursively calling themselves.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-0b1873c9-cee7-4265-aea1-9cf4835e8bbd.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-ae94211f-8079-4d93-8d68-d72e9c69b7e1.log`
+- Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past the fixed wrapper chain. Final smoke reached the MMIO bridge, VBlank callback registration, two GPU MMIO writes, and VBlank tick `#1`. Latest repeated frame is RVA `0x6656A`; subtract the PE/map `0x1000` delta to map offset `0x6556A`, which falls in `imports.cpp.obj` `sub_827EA150`.
+- Next Windows boundary: confirm whether `sub_827EA150` is another project-side wrapper self-call with a generated `__imp__sub_827EA150`, then make one minimal fix and rerun the same build/smoke. If it is not a simple wrapper recursion, stop and trace the call path instead of guessing.
+- Parallel work guidance: another conversation may start Windows-side planning or renderer/Vulkan research now, but should avoid editing `LibertyRecomp/kernel/imports.cpp`, `LibertyRecomp/kernel/memory.cpp`, `LibertyRecomp/kernel/memory.h`, and `LibertyRecomp/main.cpp` until this wrapper/MMIO startup stage is committed and pushed. Safe parallel areas are read-only ReXGlue wiki/source review, a renderer design note, IDA/rexglue symbol investigation, or Windows build/run documentation.
 
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 

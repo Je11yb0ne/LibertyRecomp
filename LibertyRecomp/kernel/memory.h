@@ -44,4 +44,5 @@ struct Memory
 };
 
 extern "C" void* MmGetHostAddress(uint32_t ptr);
+void InitializeReXGlueMMIOBridge();
 extern Memory g_memory;

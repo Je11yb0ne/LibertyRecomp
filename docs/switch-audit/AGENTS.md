@@ -22,6 +22,7 @@ This is not a playable Switch port yet. The current goal is to make the codebase
 
 - devkitPro, devkitA64, libnx, switch-sdl2, switch-sdl2_mixer, and switch-curl are installed and usable.
 - ReXGlue codegen has been built and used to generate GTA IV recompilation sources.
+- Treat ReXGlue SDK as the primary runtime/codegen reference going forward; use XenonRecomp as a translation/reference aid unless a stage explicitly scopes a XenonRecomp change.
 - Windows host build has produced `LibertyRecomp.exe`, but it is only scaffolding and not playable.
 - Switch CMake configure succeeds.
 - `LibertyRecompLib` builds and links as a Switch static library.

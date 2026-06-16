@@ -4,7 +4,14 @@
 #include <cstdlib>
 #include <cstdarg>
 #include <cstring>
+#include <atomic>
+#include <memory>
 #include <new>
+
+#if defined(_WIN32)
+#include <rex/system/mmio_handler.h>
+#include <mutex>
+#endif
 
 #if defined(LIBERTY_RECOMP_SWITCH)
 extern "C" {
@@ -80,6 +87,76 @@ static constexpr size_t AlignUp(size_t value, size_t alignment) noexcept
 {
     return (value + (alignment - 1)) & ~(alignment - 1);
 }
+
+#if defined(_WIN32)
+namespace
+{
+std::unique_ptr<rex::runtime::MMIOHandler> g_legacyReXGlueMMIOHandler;
+std::atomic<uint32_t> g_legacyReXGlueMMIOLogBudget{64};
+
+uint32_t LegacyHostToGuestVirtual(const void* context, const void* hostAddress)
+{
+    const auto* base = static_cast<const uint8_t*>(context);
+    const auto* host = static_cast<const uint8_t*>(hostAddress);
+    return static_cast<uint32_t>(host - base);
+}
+
+bool LegacyAccessViolationCallback(std::unique_lock<std::recursive_mutex>, void*, void*, bool)
+{
+    return false;
+}
+
+bool ShouldLogLegacyMMIO()
+{
+    uint32_t current = g_legacyReXGlueMMIOLogBudget.load(std::memory_order_relaxed);
+    while (current != 0)
+    {
+        if (g_legacyReXGlueMMIOLogBudget.compare_exchange_weak(
+                current, current - 1, std::memory_order_relaxed))
+            return true;
+    }
+    return false;
+}
+
+uint32_t LegacyMMIORead(void*, void*, uint32_t addr)
+{
+    const uint32_t reg = (addr & 0xFFFFu) / 4u;
+
+    if ((addr & 0xFFFF0000u) == 0x7FC80000u)
+    {
+        switch (reg)
+        {
+        case 0x0F00: return 0x08100748u; // RB_EDRAM_TIMING
+        case 0x0F01: return 0x0000200Eu; // RB_BC_CONTROL
+        case 0x194C: return 0x000002D0u; // R500_D1MODE_V_COUNTER
+        case 0x1951: return 1u;          // vblank interrupt status
+        case 0x1961: return 0x050002D0u; // 1280x720 viewport size
+        default:
+            break;
+        }
+    }
+
+    if (ShouldLogLegacyMMIO())
+    {
+        std::printf("[MMIO-BRIDGE] read addr=0x%08X reg=0x%04X -> 0\n", addr, reg);
+        std::fflush(stdout);
+    }
+    return 0;
+}
+
+void LegacyMMIOWrite(void*, void*, uint32_t addr, uint32_t value)
+{
+    if (ShouldLogLegacyMMIO())
+    {
+        std::printf("[MMIO-BRIDGE] write addr=0x%08X reg=0x%04X value=0x%08X\n",
+            addr,
+            (addr & 0xFFFFu) / 4u,
+            value);
+        std::fflush(stdout);
+    }
+}
+}
+#endif
 
 #if defined(LIBERTY_RECOMP_SWITCH)
 static bool MapSwitchGuestRange(uint8_t* guestBase, size_t offset, size_t size, const char* label) noexcept
@@ -341,4 +418,41 @@ Memory::Memory()
 void* MmGetHostAddress(uint32_t ptr)
 {
     return g_memory.Translate(ptr);
+}
+
+void InitializeReXGlueMMIOBridge()
+{
+#if defined(_WIN32)
+    if (g_memory.base == nullptr || g_legacyReXGlueMMIOHandler)
+        return;
+
+    if (rex::runtime::MMIOHandler::global_handler() != nullptr)
+        return;
+
+    g_legacyReXGlueMMIOHandler = rex::runtime::MMIOHandler::Install(
+        g_memory.base,
+        g_memory.base,
+        g_memory.base + PPC_MEMORY_SIZE,
+        LegacyHostToGuestVirtual,
+        g_memory.base,
+        LegacyAccessViolationCallback,
+        nullptr);
+
+    if (!g_legacyReXGlueMMIOHandler)
+    {
+        std::printf("[MMIO-BRIDGE] failed to install ReXGlue MMIO handler\n");
+        std::fflush(stdout);
+        return;
+    }
+
+    g_legacyReXGlueMMIOHandler->RegisterRange(
+        0x7FC80000u, 0xFFFF0000u, 0x00010000u, nullptr, LegacyMMIORead, LegacyMMIOWrite);
+    g_legacyReXGlueMMIOHandler->RegisterRange(
+        0x7FEA0000u, 0xFFFF0000u, 0x00010000u, nullptr, LegacyMMIORead, LegacyMMIOWrite);
+    g_legacyReXGlueMMIOHandler->RegisterRange(
+        0x7F000000u, 0xFF000000u, 0x01000000u, nullptr, LegacyMMIORead, LegacyMMIOWrite);
+
+    std::printf("[MMIO-BRIDGE] installed ReXGlue MMIO handler for legacy bootstrap\n");
+    std::fflush(stdout);
+#endif
 }
