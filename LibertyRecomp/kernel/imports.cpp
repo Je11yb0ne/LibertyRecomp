@@ -7352,11 +7352,12 @@ PPC_FUNC(sub_82120EE8)
 // Trace functions inside sub_82120EE8 to find the blocker
 // Hook sub_821207B0 to ensure resource manager is properly initialized
 extern "C" void sub_821207B0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821207B0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_821207B0) {
     uint32_t structAddr = ctx.r3.u32;
 
     // Call original initialization
-    sub_821207B0(ctx, base);
+    __imp__sub_821207B0(ctx, base);
 
     // Verify critical fields are zeroed (defense against uninitialized memory)
     PPC_STORE_U32(structAddr + 0, 0);      // Base pointer = NULL
