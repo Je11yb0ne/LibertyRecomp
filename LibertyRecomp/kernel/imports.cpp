@@ -10348,10 +10348,11 @@ PPC_FUNC(sub_827827C8) {
 }
 
 extern "C" void sub_82990EC0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82990EC0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82990EC0) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOG_WARNING("[sub_827E7B38] sub_82990EC0 ENTER");
-    sub_82990EC0(ctx, base);
+    __imp__sub_82990EC0(ctx, base);
     if (s_count <= 5) LOG_WARNING("[sub_827E7B38] sub_82990EC0 EXIT");
 }
 
