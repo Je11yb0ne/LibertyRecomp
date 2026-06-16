@@ -7270,6 +7270,7 @@ PPC_FUNC_IMPL(sub_82120000)
 
 // Trace functions called after sub_8218C600 succeeds
 extern "C" void sub_82120EE8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82120EE8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821250B0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82318F60(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82124080(PPCContext& ctx, uint8_t* base);
@@ -7344,7 +7345,7 @@ PPC_FUNC(sub_82120EE8)
     static int s_count = 0;
     ++s_count;
     LOGF_WARNING("[INIT] sub_82120EE8 ENTER #{}", s_count);
-    sub_82120EE8(ctx, base);
+    __imp__sub_82120EE8(ctx, base);
     LOGF_WARNING("[INIT] sub_82120EE8 EXIT #{}", s_count);
 }
 

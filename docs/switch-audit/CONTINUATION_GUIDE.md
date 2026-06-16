@@ -139,6 +139,20 @@ Next Windows boundary: fix `sub_82857240` only after confirming a generated `__i
 - Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_821915F8`. Smoke reached graphics backend attempts, MMIO/VBlank startup, `sub_8218BE28 #793/#794`, and multiple guest-thread traces entering/exiting `sub_829A7960`. Latest repeated frame is RVA `0x62982`; subtract the PE/map `0x1000` delta to map offset `0x61982`, which falls in `imports.cpp.obj` `sub_82120EE8 + 0x1F2`.
 - Next Windows boundary: inspect `sub_82120EE8 + 0x1F2`. This is outside the adjacent `sub_8218C600` logging-wrapper chain; confirm whether it is another wrapper self-call, an internal recursive branch, or a deeper runtime/memory allocation loop before editing. Use IDA MCP if source/generated/map evidence is insufficient.
 
+2026-06-17 Windows wrapper continuation 6:
+
+- Confirmed `sub_82120EE8 + 0x1F2` was another wrapper-recursion frame. The project-side wrapper called `sub_82120EE8(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_82120EE8)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.0.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_82120EE8(...)` declaration in the shared init trace declaration block, added `extern "C" void __imp__sub_82120EE8(...)`, and changed only the wrapper body to call `__imp__sub_82120EE8(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-d9cfb870-73ff-4e0f-9e50-6301c42e2413.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-c5cd2249-fc4a-467c-84fd-8395fb1be688.log`
+- Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_82120EE8`. Smoke reached graphics backend attempts, MMIO/VBlank startup, `sub_8218BE28 #793/#794`, and multiple guest-thread traces entering/exiting `sub_829A7960`. Latest repeated frame is RVA `0x62C78`; subtract the PE/map `0x1000` delta to map offset `0x61C78`, which falls in `imports.cpp.obj` `sub_821207B0 + 0x38`.
+- Next Windows boundary: inspect `sub_821207B0 + 0x38`; do not assume it is the same wrapper-recursion pattern because this function has custom resource-manager initialization logic nearby. Confirm exact source/generator behavior before editing.
+
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
 Previous stage result: lightweight XEX metadata preflight passes in Ryujinx with the real staged layout. It reads `default.xex`, validates the XEX2 header bounds, logs security/file-format/resource/import metadata, and stops before `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
@@ -193,7 +207,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_82120EE8 + 0x1F2`.
+1. Inspect the Windows stack overflow now landing in `sub_821207B0 + 0x38`.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.
