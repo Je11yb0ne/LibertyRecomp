@@ -10378,10 +10378,11 @@ PPC_FUNC(sub_827EEB48) {
 
 // sub_82197338 - last call in sub_8218C600 before return
 extern "C" void sub_82197338(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82197338(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82197338) {
     static int s_count = 0; ++s_count;
     if (s_count <= 10) LOGF_WARNING("[sub_8218C600] sub_82197338 ENTER #{}", s_count);
-    sub_82197338(ctx, base);
+    __imp__sub_82197338(ctx, base);
     if (s_count <= 10) LOGF_WARNING("[sub_8218C600] sub_82197338 EXIT #{}", s_count);
 }
 
