@@ -2,9 +2,9 @@
 
 ## Current Mainline Goal
 
-First complete the LibertyRecomp / GTA IV Nintendo Switch pre-guest audit baseline: stabilize the startup container, SD content layout, VFS path/index layer, module-load preflight, guest image/page backing, and staged XEX materialization boundaries. After that boundary is repeatable, move the mainline back to Windows runtime / unfinished upstream code, keeping Switch work to regression checks and narrowly scoped boundary fixes.
+Mainline work is now Windows runtime bring-up first, with ReXGlue as the primary runtime/codegen reference and XenonRecomp as an auxiliary translation/reference aid. The current Windows objective is to move the legacy LibertyRecomp bootstrap through guest startup blockers by fixing wrapper recursion, MMIO handling, VBlank/thread startup, module initialization, guest memory/page backing, content paths, and startup logging one verified boundary at a time.
 
-This is not a playable Switch port. All current Switch artifacts are audit packages.
+Switch work is paused at the verified LibertyRecompExeFs / NSP-like pre-guest audit baseline. Use Switch only for regression checks, packaging/content-layout fixes, or deliberately scoped pre-guest blockers while Windows runtime work is the mainline. This is not a playable Switch port; all current Switch artifacts are audit packages.
 
 ## Tooling Priority
 
@@ -53,6 +53,21 @@ Next Windows boundary: fix `sub_82857240` only after confirming a generated `__i
 - Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past the fixed wrapper chain. Final smoke reached the MMIO bridge, VBlank callback registration, two GPU MMIO writes, and VBlank tick `#1`. Latest repeated frame is RVA `0x6656A`; subtract the PE/map `0x1000` delta to map offset `0x6556A`, which falls in `imports.cpp.obj` `sub_827EA150`.
 - Next Windows boundary: confirm whether `sub_827EA150` is another project-side wrapper self-call with a generated `__imp__sub_827EA150`, then make one minimal fix and rerun the same build/smoke. If it is not a simple wrapper recursion, stop and trace the call path instead of guessing.
 - Parallel work guidance: another conversation may start Windows-side planning or renderer/Vulkan research now, but should avoid editing `LibertyRecomp/kernel/imports.cpp`, `LibertyRecomp/kernel/memory.cpp`, `LibertyRecomp/kernel/memory.h`, and `LibertyRecomp/main.cpp` until this wrapper/MMIO startup stage is committed and pushed. Safe parallel areas are read-only ReXGlue wiki/source review, a renderer design note, IDA/rexglue symbol investigation, or Windows build/run documentation.
+
+2026-06-17 Windows continuation update:
+
+- Mainline goal was explicitly changed to Windows-first runtime bring-up. Switch remains frozen at the verified LibertyRecompExeFs / NSP-like pre-guest baseline except for regression checks or narrowly scoped Switch-only blockers.
+- Confirmed root cause for the next stack overflow frame: `LibertyRecomp/kernel/imports.cpp` had a project-side strong wrapper for `sub_827EA150` that called the public alias `sub_827EA150(ctx, base)` instead of the generated implementation. ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_827EA150)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.52.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: `sub_827EA150` now declares and calls `__imp__sub_827EA150`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-54247445-2615-4a33-b1d7-7f8419150ec7.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-2dd943a9-52af-4964-bb9a-91f99f3c0fc1.log`
+- Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_827EA150`. Smoke reached the MMIO bridge, graphics backend attempts, VBlank tick `#2`, and the `sub_8284F880` exit trace. Latest repeated frame is RVA `0x7824A`; subtract the PE/map `0x1000` delta to map offset `0x7724A`, which falls in `imports.cpp.obj` `sub_827827C8 + 0x6A`.
+- Next Windows boundary: confirm whether `sub_827827C8` is another project-side wrapper self-call with a generated `__imp__sub_827827C8`, then make one minimal fix and rerun the same build/smoke. If it is not a simple wrapper recursion, stop and trace the call path instead of guessing.
 
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
@@ -108,23 +123,23 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Re-read the latest Switch verification summary.
-   Completion standard: confirm the latest default and module-load audit Build IDs, Ryujinx logs, and no-`TEXTREL` status in this guide and the audit log.
+1. Continue the Windows wrapper-recursion audit from `sub_827827C8`.
+   Completion standard: confirm whether a generated `__imp__sub_827827C8` exists, prove the wrapper call pattern before editing, make at most the minimal wrapper call-through fix, rebuild, and rerun Windows smoke.
 
-2. Decide the pivot boundary.
-   Completion standard: document whether Switch work should pause at pre-guest baseline or continue to another pre-guest-only blocker, without entering `GuestThread::Start()`.
+2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.
+   Completion standard: each smoke records whether `[MMIO-BRIDGE]`, VBlank callback/thread startup, GPU MMIO writes, and the latest repeated stack frame are present.
 
-3. If pivoting, prepare Windows continuation notes.
-   Completion standard: record the Windows-side entry point and known unfinished/runtime blockers without modifying unrelated Switch code.
+3. Keep Switch frozen as a regression baseline.
+   Completion standard: do not build or modify `LibertyRecompNro`/`LibertyRecompExeFs` unless a Windows-side change needs a Switch regression check or a Switch-only blocker is explicitly scoped.
 
-4. If continuing Switch, choose only one pre-guest boundary.
-   Completion standard: update this guide with the exact next Switch blocker, its non-goals, and fresh verification commands before editing code.
+4. Document each Windows blocker movement.
+   Completion standard: update this guide with build result, smoke log paths, latest repeated RVA/map offset, and next exact symbol before committing.
 
-5. Keep default ExeFS reproducible.
-   Completion standard: default CMake cache has all Switch audit stops OFF and guest-memory audit OFF before handing off or pivoting.
+5. Avoid parallel code conflicts.
+   Completion standard: no other conversation edits `LibertyRecomp/kernel/imports.cpp`, `LibertyRecomp/kernel/memory.cpp`, `LibertyRecomp/kernel/memory.h`, or `LibertyRecomp/main.cpp` while this Windows startup stage is active.
 
-6. Document, commit, and push any decision.
-   Completion standard: update this guide first, sync updated switch-audit docs to `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns`, commit only scoped files, and push current `codex/switch-audit-20260615` branch.
+6. Document, commit, and push each meaningful stage.
+   Completion standard: update this guide first, sync updated switch-audit docs to `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns`, commit only scoped files, and push current `codex/switch-audit-20260615` branch using `D:\Git\cmd\git.exe`.
 
 ## Current Stage Verification
 
@@ -328,4 +343,4 @@ Enter the next stage only after this stage has:
 
 ## Next Boundary Decision
 
-The Switch pre-guest baseline is now broad enough for a pivot decision. Recommended default: pause Switch feature work after committing this stage, keep `LibertyRecompExeFs` as the regression package, and move the mainline to Windows runtime / unfinished upstream code. Switch should only resume for regression failures, packaging/content-layout fixes, or a deliberately scoped pre-guest blocker. Do not enter guest/gameplay code until the guide explicitly allows it.
+The pivot decision is now made: pause Switch feature work, keep `LibertyRecompExeFs` as the regression package, and move the mainline to Windows runtime / unfinished upstream code. Switch should only resume for regression failures, packaging/content-layout fixes, or a deliberately scoped pre-guest blocker. Do not claim Switch playability.

@@ -7718,7 +7718,7 @@ PPC_FUNC(sub_822736C8) {
 
 extern "C" void sub_821DE390(PPCContext& ctx, uint8_t* base);
 // Hook sub_827EA150 to fix infinite loop in callback list iteration
-extern "C" void sub_827EA150(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827EA150(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827EA150) {
     static int s_count = 0; ++s_count;
 
@@ -7743,7 +7743,7 @@ PPC_FUNC(sub_827EA150) {
     }
 
     // Call original implementation (will skip callback iteration since list is now NULL)
-    sub_827EA150(ctx, base);
+    __imp__sub_827EA150(ctx, base);
 
     LOGF_WARNING("[FS] sub_827EA150 #{} completed", s_count);
 }
