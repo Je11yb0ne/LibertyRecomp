@@ -10339,10 +10339,11 @@ PPC_FUNC(sub_827DF490) {
 }
 
 extern "C" void sub_827827C8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827827C8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827827C8) {
     static int s_count = 0; ++s_count;
     if (s_count <= 10) LOG_WARNING("[sub_827E7B38] sub_827827C8 ENTER (queue op)");
-    sub_827827C8(ctx, base);
+    __imp__sub_827827C8(ctx, base);
     if (s_count <= 10) LOG_WARNING("[sub_827E7B38] sub_827827C8 EXIT");
 }
 
