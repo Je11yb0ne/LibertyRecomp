@@ -8056,6 +8056,7 @@ PPC_FUNC(sub_829748D0) {
 // Functions inside sub_829748D0
 extern "C" void __imp__sub_829A1950(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8298E810(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8298E810(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A1958(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_829A1950) {
@@ -8083,7 +8084,7 @@ PPC_FUNC(sub_8298E810) {
     // 2. Create worker thread via sub_827DAF50
     // 3. Wait on sem2 (ctx+40) for worker to signal it's running
     // Sync table handles the semaphore wait/signal coordination
-    sub_8298E810(ctx, base);
+    __imp__sub_8298E810(ctx, base);
 
     LOGF_WARNING("[AUDIO_WORKER] sub_8298E810 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
 }
