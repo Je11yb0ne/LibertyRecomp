@@ -7810,6 +7810,7 @@ PPC_FUNC(sub_82124EF0) {
 // We trace but let it run - the vtable method handles file reading.
 // =============================================================================
 extern "C" void sub_82205438(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82205438(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82205438) {
     static int s_count = 0; ++s_count;
 
@@ -7817,7 +7818,7 @@ PPC_FUNC(sub_82205438) {
         LOG_WARNING("[RESOURCE] sub_82205438 ENTER (string/resource lookup)");
     }
 
-    sub_82205438(ctx, base);
+    __imp__sub_82205438(ctx, base);
 
     if (s_count <= 10) {
         LOGF_WARNING("[RESOURCE] sub_82205438 EXIT r3={}", ctx.r3.u32);
