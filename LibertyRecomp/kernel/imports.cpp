@@ -7901,6 +7901,7 @@ extern "C" void __imp__sub_82976570(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8297AD60(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_8297AD60(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8297B260(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8297B260(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_8297B8C0) {
     static int s_count = 0; ++s_count;
@@ -8021,7 +8022,7 @@ PPC_FUNC(sub_8297B260) {
                      s_count, audioObjPtr, vt1);
     }
 
-    sub_8297B260(ctx, base);  // Let worker init run
+    __imp__sub_8297B260(ctx, base);  // Let generated worker init run
 
     if (s_count <= 3) {
         LOG_WARNING("[AUDIO] sub_8297B260 EXIT - worker thread model");
