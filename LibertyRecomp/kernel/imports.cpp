@@ -7891,6 +7891,7 @@ PPC_FUNC(sub_82673718) {
 extern "C" void sub_8297B8C0(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_8297B8C0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_829735C8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_829735C8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82974F90(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82670660(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82976570(PPCContext& ctx, uint8_t* base);
@@ -7918,7 +7919,7 @@ PPC_FUNC(sub_829735C8) {
         LOG_WARNING("[AUDIO] sub_829735C8 ENTER - calling original (audio init)");
     }
 
-    sub_829735C8(ctx, base);  // Let it run!
+    __imp__sub_829735C8(ctx, base);  // Let generated original run.
 
     if (s_count <= 3) {
         LOG_WARNING("[AUDIO] sub_829735C8 EXIT - audio init complete");
