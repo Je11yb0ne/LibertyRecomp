@@ -1734,3 +1734,67 @@ Next stage entry condition:
 
 - Resume at constructor-table target coverage and the `01000000` / `00000000` indirect-call source tracing.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 56: Forced Constructor Target Coverage
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up by turning missing indirect-call diagnostics into narrow runtime coverage fixes.
+- Avoid a tracked generated-code refresh until the ReXGlue 0.8.1 generated-output migration is deliberately scoped.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Proved with a temporary ReXGlue codegen run that constructor-table targets `0x829F6F60`, `0x829F6F80`, `0x829F6FA0`, `0x829F6FC0`, `0x829F7020`, `0x829F70E0`, `0x829F7100`, `0x829F71E8`, and `0x829F9DC8` are valid recompiled function entries, not data table artifacts.
+- Temporary codegen output:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\rexglue-forced-ctor-cc9fc38c-83e8-4050-9c8f-101629f95d13\generated`
+- Added narrow hand-written equivalents for those nine ctor thunk functions in `LibertyRecomp/kernel/imports.cpp`, matching the temporary ReXGlue output.
+- Registered the nine thunk functions dynamically before `sub_829A7DC8` enters the table2 constructor loop.
+- This avoids editing the tracked generated directory for this boundary while preserving the current legacy runtime shape.
+
+Fresh verification:
+
+- Static check confirmed all nine `PPC_FUNC(sub_829F...)` definitions and the `LibertyRegisterForcedCtorTargets()` call exist.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known five `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-ctorforced-6ff159f3-8013-4dfa-a381-db561ed886f4.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-ctorforced-9af32841-f375-443e-9ca8-d46c271eb360.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. The previous first nine in-range missing indirect calls at `0x829F6F60..0x829F9DC8` disappeared. The first missing indirect call is now the non-null out-of-range target `0x01000000` at `lr=0x82121160`, followed by the existing `00000000` clusters.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Trace the `0x01000000` target at `lr=0x82121160`.
+   Completion standard: identify the generated function and source field/register path that loads CTR with `0x01000000`.
+2. Decide whether `0x01000000` is a malformed function pointer, endian/flagged pointer, import thunk value, or expected nullable/error path.
+   Completion standard: choose only after source/register evidence; do not mask the call blindly.
+3. Trace the repeated `00000000` cluster around `lr=0x822F983C` and `lr=0x82200F74/0x82200F94`.
+   Completion standard: identify at least one guest table slot feeding CTR and whether null dispatch should be skipped or initialized.
+4. Rebuild and run bounded smoke after the next minimal change.
+   Completion standard: Windows build succeeds and smoke either removes/reclassifies the `01000000` missing call or produces a clearly different first blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `0x01000000 @ lr=0x82121160`, still in Windows startup/resource bring-up.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.

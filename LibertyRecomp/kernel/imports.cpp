@@ -7023,6 +7023,87 @@ static void TraceCtorTarget829EB9C8(PPCContext& ctx, uint8_t* base) {
     printf("[BOOT-TRACE] sub_829EB9C8 EXIT(manual) r3=0x%08X r1=0x%08X\n", ctx.r3.u32, ctx.r1.u32);
     fflush(stdout);
 }
+
+extern "C" void sub_827FE360(PPCContext& ctx, uint8_t* base);
+extern "C" void sub_827EEDB8(PPCContext& ctx, uint8_t* base);
+static bool RegisterDynamicFunction(uint32_t guestAddr, PPCFunc* hostFunc);
+
+static void LibertyCtorCall827FE360(PPCContext& ctx, uint8_t* base, int64_t r3, int64_t r4, int64_t r5, int64_t r6) {
+    ctx.r3.s64 = r3;
+    ctx.r4.s64 = r4;
+    ctx.r5.s64 = r5;
+    ctx.r6.s64 = r6;
+    sub_827FE360(ctx, base);
+}
+
+static void LibertyCtorCall827EEDB8(PPCContext& ctx, uint8_t* base, int64_t r3, int64_t r4, int64_t r5, int64_t r6) {
+    ctx.r3.s64 = r3;
+    ctx.r4.s64 = r4;
+    ctx.r5.s64 = r5;
+    ctx.r6.s64 = r6;
+    sub_827EEDB8(ctx, base);
+}
+
+static void LibertyCtorLinkNode(PPCContext& ctx, uint8_t* base, int64_t node) {
+    ctx.r10.s64 = -2096037888;
+    ctx.r11.s64 = node;
+    ctx.r9.u64 = PPC_LOAD_U32(ctx.r10.u32 + -7772);
+    PPC_STORE_U32(ctx.r10.u32 + -7772, ctx.r11.u32);
+    PPC_STORE_U32(ctx.r11.u32 + 4, ctx.r9.u32);
+}
+
+PPC_FUNC(sub_829F6F60) {
+    LibertyCtorCall827FE360(ctx, base, -2096168960 + 6696, -2113470464 + -26568, -2103050240 + -20080, 8357);
+}
+
+PPC_FUNC(sub_829F6F80) {
+    LibertyCtorCall827FE360(ctx, base, -2096168960 + 6660, -2113470464 + -26536, -2103050240 + -11720, 126);
+}
+
+PPC_FUNC(sub_829F6FA0) {
+    LibertyCtorCall827FE360(ctx, base, -2096168960 + 6628, -2113470464 + -26512, -2103050240 + -11592, 126);
+}
+
+PPC_FUNC(sub_829F6FC0) {
+    LibertyCtorCall827EEDB8(ctx, base, -2096168960 + 6712, 0, -2113470464 + -26484, 0);
+}
+
+PPC_FUNC(sub_829F7020) {
+    LibertyCtorCall827EEDB8(ctx, base, -2096168960 + 6836, 0, -2113470464 + -25064, 0);
+}
+
+PPC_FUNC(sub_829F70E0) {
+    LibertyCtorCall827FE360(ctx, base, -2096168960 + 9252, -2113470464 + -19180, -2103050240 + 616, 21798);
+}
+
+PPC_FUNC(sub_829F7100) {
+    LibertyCtorLinkNode(ctx, base, -2103050240 + 23332);
+}
+
+PPC_FUNC(sub_829F71E8) {
+    LibertyCtorLinkNode(ctx, base, -2102984704 + 2840);
+}
+
+PPC_FUNC(sub_829F9DC8) {
+    LibertyCtorCall827EEDB8(ctx, base, -2095972352 + 20132, 0, -2113404928 + 12948, 0);
+}
+
+static void LibertyRegisterForcedCtorTargets() {
+    static bool registered = false;
+    if (registered || g_memory.base == nullptr) {
+        return;
+    }
+    registered = true;
+    RegisterDynamicFunction(0x829F6F60, sub_829F6F60);
+    RegisterDynamicFunction(0x829F6F80, sub_829F6F80);
+    RegisterDynamicFunction(0x829F6FA0, sub_829F6FA0);
+    RegisterDynamicFunction(0x829F6FC0, sub_829F6FC0);
+    RegisterDynamicFunction(0x829F7020, sub_829F7020);
+    RegisterDynamicFunction(0x829F70E0, sub_829F70E0);
+    RegisterDynamicFunction(0x829F7100, sub_829F7100);
+    RegisterDynamicFunction(0x829F71E8, sub_829F71E8);
+    RegisterDynamicFunction(0x829F9DC8, sub_829F9DC8);
+}
 PPC_FUNC(sub_829A7DC8) {
     const uint32_t savedLr = static_cast<uint32_t>(ctx.lr);
     const uint64_t savedR30 = ctx.r30.u64;
@@ -7082,6 +7163,8 @@ PPC_FUNC(sub_829A7DC8) {
         fflush(stdout);
         goto done;
     }
+
+    LibertyRegisterForcedCtorTargets();
 
     const uint32_t table2Begin = 0x82A20010;
     const uint32_t table2End = 0x82A214F8;
