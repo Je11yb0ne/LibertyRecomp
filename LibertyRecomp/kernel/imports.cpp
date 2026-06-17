@@ -8031,6 +8031,7 @@ PPC_FUNC(sub_8297B260) {
 
 // More functions after sub_8297B260 in sub_82673718
 extern "C" void sub_82975608(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82975608(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_8296C060(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82671E40(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82672E50(PPCContext& ctx, uint8_t* base);
@@ -8038,7 +8039,7 @@ extern "C" void sub_82672E50(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82975608) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[INIT] sub_82975608 ENTER #{}", s_count);
-    sub_82975608(ctx, base);
+    __imp__sub_82975608(ctx, base);
     LOGF_WARNING("[INIT] sub_82975608 EXIT #{}", s_count);
 }
 
