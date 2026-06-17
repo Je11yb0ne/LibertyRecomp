@@ -1220,3 +1220,78 @@ Next stage entry condition:
 
 - Resume at `sub_8260E310`, still in Windows startup bring-up.
 - Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
+
+## 2026-06-17 Windows Continuation 49: Startup Wrapper Batch 4
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up through the UI/GPU trace wrapper layer.
+- Preserve existing hand-written bypass stubs for known Xbox GPU/device/scheduler blockers.
+- Keep Switch frozen as the pre-guest regression baseline unless a Switch-specific regression is explicitly scoped.
+
+Completed in this batch:
+
+- `sub_8260E310`, `sub_822B3C58`, `sub_822B4D68`, `sub_824A0898`, `sub_8260CF30`, `sub_8260BE08`, `sub_824B65B0`, `sub_822E3EC8`, and `sub_8222F7E8`: `sub_82221410` UI-internal wrappers now call generated `__imp__*` implementations.
+- `sub_827E0740`, `sub_8285F750`, and `sub_82860928`: `sub_824A0898` nested wrappers now call generated `__imp__*` implementations.
+- `sub_821EC018`, `sub_827DFC60`, and `sub_8285DC80`: `sub_822B4D68` nested wrappers now call generated `__imp__*` implementations.
+- `sub_828787C0`, `sub_8286DA20`, `sub_8286D668`, `sub_827E93F8`, `sub_8286BAE0`, and `sub_829E5C38`: GPU resource trace wrappers now call generated `__imp__*` implementations.
+- Preserved intentional stubs/bypasses:
+  `sub_8249D6F0`, `sub_822E49A0`, `sub_8285AF80`, and `sub_82850028`.
+
+Fresh verification:
+
+- UI static GREEN check reported:
+  `GREEN_PASS_UI_INTERNAL_WRAPPERS_CALL_IMP_STUBS_PRESERVED`.
+- UI/GPU static GREEN check reported:
+  `GREEN_PASS_UI_AND_GPU_TRACE_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-2df532c2-e47b-4c71-93af-cd6ffdd32532.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-39614655-8681-4137-b597-93a782573d5b.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. It moved past `sub_8260E310`, the UI-internal wrapper group, and the GPU trace wrapper group. Startup now reaches additional embedded/platform DCL content probes such as `embedded:/dcl/dcl`, `embedded:/dcl`, `platform:/dcl/dcl/dcl`, and `platform:/dcl/dcl`, while preserving the earlier MMIO/VBlank/guest-thread/VFS progress.
+- The latest repeated VEH frame moved to:
+  `rva=0x8E054`.
+- Map result:
+  `rva=0x8E054` maps to `sub_8226CB50 + 0x1F4` in `imports.cpp.obj`.
+- Current root-cause check:
+  `sub_8226CB50` is the next Camera system startup wrapper to inspect before editing.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/*.patch`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect `sub_8226CB50` and the adjacent camera/subsystem wrapper group.
+   Completion standard: RED check confirms direct wrapper recursion or identifies a different root cause before editing.
+2. Patch only the mapped same-chain wrapper group if it is direct instrumentation recursion.
+   Completion standard: static GREEN check proves no same-symbol calls remain in edited wrappers.
+3. Rebuild and run bounded smoke.
+   Completion standard: Windows build succeeds, smoke moves past `rva=0x8E054`, and the next repeated frame is mapped.
+4. Stop wrapper replacement when the repeated frame leaves direct instrumentation recursion.
+   Completion standard: switch to root-cause tracing for the first non-wrapper blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe` for push.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_8226CB50`, still in Windows startup bring-up.
+- Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
