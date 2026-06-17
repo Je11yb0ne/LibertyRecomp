@@ -1810,8 +1810,8 @@ Current mainline goal:
 Completed in this batch:
 
 - Traced the non-null out-of-range indirect call `0x01000000 @ lr=0x82121160` to generated `__imp__sub_821A8278`, which loads a HUD object from `0x82CFA2E4`, reads its vtable, then dispatches `vtable[56]`.
-- Confirmed the old hand-expanded `sub_821A8868` wrapper allocated and initialized the HUD object with stale vtable `0x82010F0C`.
-- Confirmed current generated `__imp__sub_82300C78` initializes the object with vtable `0x82000F0C` and stores the object at `0x82CFA2E4`.
+- Confirmed the old hand-expanded `sub_821A8868` wrapper skipped current generated initialization side effects before creating/storing the HUD object.
+- Confirmed current generated `__imp__sub_82300C78` initializes the object with vtable `0x82010F0C`, runs the generated pre-init path, and stores the object at `0x82CFA2E4`.
 - Replaced the old no-op `sub_82300C78` wrapper with a tracing wrapper that calls `__imp__sub_82300C78`.
 - Replaced the old hand-expanded `sub_821A8868` wrapper with a tracing wrapper that calls `__imp__sub_821A8868`.
 - This keeps the public wrapper instrumentation but restores the current generated initialization sequence for the HUD object and vtable.
@@ -1866,4 +1866,76 @@ Next small tasks:
 Next stage entry condition:
 
 - Resume at `00000000 @ lr=82300D28`, then the sync null-dispatch cluster at `827DB388..827DB3F4`, still in Windows startup/resource bring-up.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 58: Null-Dispatch Register Diagnostics
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up by distinguishing harmless/null callback dispatch diagnostics from missing initialization or bad function-pointer corruption.
+- Keep the diagnostic behavior-preserving: do not skip, synthesize, or install fallback handlers for null indirect calls without source evidence.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Corrected the previous stage note: generated `__imp__sub_82300C78` uses vtable `0x82010F0C`; the old hand-expanded wrapper was wrong because it skipped generated initialization side effects, not because it used a different vtable address.
+- Expanded `PPC_CALL_INDIRECT_FUNC` missing-call diagnostics to log `r3`, `r4`, `r5`, `r10`, and `r11` in addition to sequence, target, range classification, `lr`, `ctr`, `r1`, and `r12`.
+- This is diagnostic only. It does not change dispatch behavior or guest register state.
+
+Fresh verification:
+
+- Static checks:
+  - `git -c core.whitespace=cr-at-eol diff --check -- glue/rexglue-sdk-main/include/rex/ppc/context.h LibertyRecomp/kernel/imports.cpp docs/switch-audit/CONTINUATION_GUIDE.md` passed.
+  - `GREEN_PASS_HUD_COMMENT_CORRECTED` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  a full rebuild from the shared ReXGlue context header took a long time and completed in the background after the tool timeout; a fresh follow-up Ninja run reported `ninja: no work to do`, confirming the build finished.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-nullregs-c074b62b-c567-427b-8d7e-02de49c8bc64.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-nullregs-4a0d4498-6a13-4235-8d78-76f9f6b9f862.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. Temporary `portable.txt`, copied `game/default.xex`, and empty `game` directory were removed afterward.
+
+Key evidence:
+
+- `82300D28`: `r3=006084E0`, `r10=FFFFFFFF`, `r11=00000000`, `ctr=00000000`. Source is generated `__imp__sub_82300C78` calling the HUD object's `vtable[4]`; the slot is null and execution continues.
+- `827DB388/827DB3B0/827DB3D0/827DB3F4`: `r3=82A80A24`, `r11=00000000`, `ctr=00000000`. Source is generated `__imp__sub_827DB338` calling service-object slots from the fixed object returned by `sub_827E1780` (`0x82A80A24`); the relevant slots are null and execution continues.
+- `82121160`: `r3=006084E0`, `r10=82010F0C`, `r11=00000000`, `ctr=00000000`. The earlier bad `0x01000000` value remains gone; this is now also a null HUD vtable slot.
+- Repeated resource/finalization clusters remain, especially `822F983C` with `r4=8201052C`, `r5=00000003`, `r10=00000206`, and `r11=00000000`, plus `82200F74/82200F94` with `r10=000001FC`.
+- Runtime surface still reaches empty `GTA::FileResolve`, `platform:/textures/hud`, embedded DCL probes, `platform:/textures/fx_Rain`, and final setup. This remains startup/resource/runtime bring-up, not playability.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `glue/rexglue-sdk-main/include/rex/ppc/context.h`,
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Trace the repeated `822F983C` null-dispatch cluster.
+   Completion standard: map the generated function, source object/table, and slot value feeding `r11=0`.
+2. Trace the paired `82200F74/82200F94` cluster.
+   Completion standard: identify why the same call pair repeats with `r10=0x1FC` and whether it is tied to missing resource content or a render setup callback table.
+3. Audit empty-path `GTA::FileResolve` success.
+   Completion standard: identify at least one caller and decide whether empty path should return failure, root, or a special no-op handle.
+4. Add the smallest diagnostic or runtime fix for the first proven root cause.
+   Completion standard: no blind masking of null calls; behavior changes require source/register evidence.
+5. Rebuild and run bounded smoke after the next minimal change.
+   Completion standard: Windows build succeeds and smoke either reduces/reclassifies the resource/finalization null-dispatch cluster or produces a clearly different blocker.
+6. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at the `822F983C` and `82200F74/82200F94` null-dispatch clusters, still in Windows startup/resource bring-up.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.

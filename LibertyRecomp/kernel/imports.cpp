@@ -11990,8 +11990,8 @@ PPC_FUNC(sub_827DB988) {
 
 // REIMPLEMENTED: sub_821A8868 (HUD/Mission init)
 // This wrapper now delegates to the generated ReXGlue implementation. The old
-// hand-expanded version used stale vtable data and produced a bad 0x01000000
-// indirect call in sub_821A8278.
+// hand-expanded version skipped generated initialization side effects and
+// produced a bad 0x01000000 indirect call in sub_821A8278.
 extern "C" void __imp__sub_821A8868(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_821A8868) {

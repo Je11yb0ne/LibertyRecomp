@@ -140,9 +140,11 @@ inline std::atomic<uint32_t> g_ppc_missing_indirect_log_count{0};
       if (_icf_log < 256) {                                                              \
         fprintf(stderr,                                                                  \
                 "[MISSING-FUNC] #%u indirect call to %08X (in_range=%d) "               \
-                "lr=%08llX ctr=%08X r1=%08X r12=%08X\n",                               \
+                "lr=%08llX ctr=%08X r1=%08X r3=%08X r4=%08X r5=%08X "                  \
+                "r10=%08X r11=%08X r12=%08X\n",                                        \
                 _icf_log + 1, _icf_addr, (int)_icf_in_range,                             \
-                (unsigned long long)ctx.lr, ctx.ctr.u32, ctx.r1.u32, ctx.r12.u32);       \
+                (unsigned long long)ctx.lr, ctx.ctr.u32, ctx.r1.u32, ctx.r3.u32,         \
+                ctx.r4.u32, ctx.r5.u32, ctx.r10.u32, ctx.r11.u32, ctx.r12.u32);          \
         fflush(stderr);                                                                  \
       }                                                                                  \
     }                                                                                    \
