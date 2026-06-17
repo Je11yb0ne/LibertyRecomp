@@ -647,6 +647,23 @@ First guest-memory-enabled attempt result: with the full scanned image/function-
 - Push note: local commit `a4f599a8` for continuation 38 could not be pushed because GitHub credential-manager requires an interactive prompt. Continue committing locally until credentials are restored, then push the accumulated branch.
 - Next Windows boundary: inspect `sub_82124EF0`; the `+0x6A` offset matches the common logging-wrapper entry pattern, but confirm generated `__imp__sub_82124EF0` and the exact call pattern before editing.
 
+2026-06-17 Windows wrapper continuation 40:
+
+- Confirmed `sub_82124EF0 + 0x6A` was another wrapper-recursion frame. The project-side wrapper called `sub_82124EF0(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_82124EF0)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.0.cpp`.
+- Added a narrow static regression check before editing; the first broad check had a false positive because `__imp__sub_82124EF0` contains the public symbol name as a substring, then the line-exact check passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_82124EF0(...)` declaration, added `extern "C" void __imp__sub_82124EF0(...)`, and changed only the logging wrapper body to call `__imp__sub_82124EF0(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-323fa8ea-3c32-468d-8e02-a382762a26f8.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-78cf480c-7625-4c2e-b1e1-fbae4aa9d409.log`
+- Fresh smoke result: the 15-second bounded smoke reached MMIO bridge writes, graphics backend attempts, guest thread startup, multiple `sub_829A7960` traces, VBlank ticks through `#3`, and multiple `Guest code returned` lines, then logged `0xC00000FD` stack overflow before the harness killed the still-running process at the 15-second limit.
+- Latest repeated frame is RVA `0x668F6`; the map places `sub_82205438` at `0x140066880`, and objdump shows `0x1400668F1` is a call back to `0x140066880`, with return address `0x1400668F6`. This confirms the next stack frame is `sub_82205438` wrapper recursion, not `sub_82124EF0` generated implementation recursion.
+- Smoke execution note: verification used the same 15-second bounded `Start-Process` smoke and cleaned the temporary `portable.txt`, `game/default.xex`, and empty `game` directory from the build tree.
+- Push note: local commits remain unpushed because GitHub credential-manager requires an interactive prompt. Continue committing locally until credentials are restored, then push the accumulated branch.
+- Next Windows boundary: inspect `sub_82205438`; confirm generated `__imp__sub_82205438` and the exact wrapper call pattern before editing.
+
 ## Explicit Non-Goals
 
 - Do not claim or imply the Switch build is playable.
@@ -683,7 +700,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_82124EF0 + 0x6A`.
+1. Inspect the Windows stack overflow now landing in `sub_82205438` wrapper recursion.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.
