@@ -7785,10 +7785,11 @@ PPC_FUNC(sub_821DE390) {
 
 // Trace internal calls of sub_821DE390
 extern "C" void sub_82204770(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82204770(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82204770) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOG_WARNING("[sub_821DE390] sub_82204770 ENTER");
-    sub_82204770(ctx, base);
+    __imp__sub_82204770(ctx, base);
     if (s_count <= 5) LOG_WARNING("[sub_821DE390] sub_82204770 EXIT");
 }
 
