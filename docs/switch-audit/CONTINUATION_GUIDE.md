@@ -1007,3 +1007,72 @@ Enter the next stage only after this stage has:
 ## Next Boundary Decision
 
 The pivot decision is now made: pause Switch feature work, keep `LibertyRecompExeFs` as the regression package, and move the mainline to Windows runtime / unfinished upstream code. Switch should only resume for regression failures, packaging/content-layout fixes, or a deliberately scoped pre-guest blocker. Do not claim Switch playability.
+
+## 2026-06-17 Windows Continuation 46: Startup Wrapper Batch 1
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up with ReXGlue generated implementations as primary and XenonRecomp as auxiliary reference.
+- Clear project-side wrapper self-recursion in the startup path, then continue into real VFS/resource loading, thread synchronization, MMIO/VBlank, and GPU initialization blockers.
+- Do not treat individual wrapper fixes as a final phase boundary; batch small verified wrapper fixes, record evidence, commit, push, and continue.
+
+Completed in this batch:
+
+- `sub_82273988`: resource-array initialization wrapper now calls `__imp__sub_82273988`.
+- `sub_82124080`: profile/save init wrapper now calls `__imp__sub_82124080`.
+- `sub_82124540`: stream/config parser wrapper now calls `__imp__sub_82124540` in both invalid-buffer and normal paths.
+- `sub_82192840`: file-open wrapper now calls `__imp__sub_82192840` before handle validation.
+- `sub_82192980`: file stream read wrapper now calls `__imp__sub_82192980` before buffer logging.
+
+Fresh verification:
+
+- RED/GREEN static checks were run for each repaired wrapper; the final combined GREEN check reported:
+  `GREEN_PASS_current_five_wrappers_call_imp`.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-e8aa57e6-2f74-4458-b425-1ec3e9b0aa3d.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-d0c55056-6d1d-4244-ba12-9058e0c758a0.log`
+- Smoke result:
+  exited `0x00000000` after the VEH handler logged stack overflow; startup reached MMIO bridge writes, VBlank ticks, guest thread launches, VFS resolves for `platform:/textures/fonts` and `platform:/textures/buttons_360`, then `common:/DATA/LOADINGSCREENS_360.DAT`.
+- The latest repeated VEH frame moved to:
+  `rva=0x83772`.
+- Map result:
+  `rva=0x83772` maps to `sub_821244B8 + 0x1F2` in `imports.cpp.obj`.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Fix `sub_821244B8` if RED check confirms direct wrapper recursion.
+   Completion standard: ReXGlue `__imp__sub_821244B8` declaration exists, wrapper no longer calls itself, build succeeds, smoke moves past `rva=0x83772`.
+2. Continue along the current file stream/profile chain instead of jumping to unrelated static-scan results.
+   Completion standard: each next repeated RVA is mapped through `LibertyRecomp.map` before editing.
+3. Keep the static self-recursion scan as a backlog, not a bulk rewrite.
+   Completion standard: only fix a scanned wrapper when it is on the current smoke call path or when a narrow batch is explicitly justified.
+4. Watch for the first non-wrapper blocker.
+   Completion standard: if the repeated frame maps outside `imports.cpp.obj` or no longer contains a direct same-symbol call, switch to root-cause tracing instead of wrapper replacement.
+5. Commit and push each verified batch.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_821244B8`, still in Windows startup bring-up.
+- Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.

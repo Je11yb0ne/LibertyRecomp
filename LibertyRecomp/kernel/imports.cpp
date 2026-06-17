@@ -7274,8 +7274,10 @@ extern "C" void __imp__sub_82120EE8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821250B0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82318F60(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82124080(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82124080(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82120FB8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82124540(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82124540(PPCContext& ctx, uint8_t* base);
 // Final 5 subsystems in sub_82120FB8 - instrumentation to find blocker
 extern "C" void sub_8227AC28(PPCContext& ctx, uint8_t* base);  // World finalization
 extern "C" void sub_82272290(PPCContext& ctx, uint8_t* base);  // Entity finalize
@@ -7377,6 +7379,7 @@ PPC_FUNC(sub_821207B0) {
 // Enhanced with comprehensive validation to prevent PAC crashes in sub_827E7FA8.
 // =============================================================================
 extern "C" void sub_82192840(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82192840(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82192840) {
     static int s_callCount = 0;
     static int s_invalidHandles = 0;
@@ -7389,8 +7392,7 @@ PPC_FUNC(sub_82192840) {
     }
 
     // Call original implementation
-    sub_82192840(ctx, base);
-
+    __imp__sub_82192840(ctx, base);
     uint32_t handle = ctx.r3.u32;
 
     // COMPREHENSIVE VALIDATION: Check all possible invalid handle cases
@@ -7755,6 +7757,7 @@ PPC_FUNC(sub_827EA150) {
 extern "C" void sub_8221F8A8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_8221F8A8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82273988(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82273988(PPCContext& ctx, uint8_t* base);
 
 // =============================================================================
 // sub_821DB1E0 - Config File Parser (causes PAC crash)
@@ -11124,9 +11127,7 @@ PPC_FUNC(sub_82273988) {
     // Also check and log what happens at context[358] - the completion flag
     uint32_t completionFlag = PPC_LOAD_U8(contextAddr + 358);
     LOGF_WARNING("[INIT] sub_82273988 Completion flag before: context[358]={}", completionFlag);
-
-    sub_82273988(ctx, base);
-
+    __imp__sub_82273988(ctx, base);
     // Check completion flag after execution
     uint32_t completionFlagAfter = PPC_LOAD_U8(contextAddr + 358);
     LOGF_WARNING("[INIT] sub_82273988 Completion flag after: context[358]={}", completionFlagAfter);
@@ -11192,7 +11193,7 @@ PPC_FUNC(sub_82124540) {
                      s_count, bufferPtr);
         // Call original - the VFS/file hooks will handle the invalid pointer gracefully
         // The downstream sub_82192840 hook already validates and returns 0 for invalid handles
-        sub_82124540(ctx, base);
+        __imp__sub_82124540(ctx, base);
         return;
     }
 
@@ -11200,7 +11201,7 @@ PPC_FUNC(sub_82124540) {
         LOGF_WARNING("[STREAM] sub_82124540 #{} buffer=0x{:08X} r1=0x{:08X} - parsing stream.ini",
                      s_count, bufferPtr, ctx.r1.u32);
     }
-    sub_82124540(ctx, base);
+        __imp__sub_82124540(ctx, base);
 }
 
 
@@ -11214,8 +11215,7 @@ PPC_FUNC(sub_82124080)
     // This function initializes profile/save system and calls sub_82192E00 which would block
     // With sub_82192E00 stubbed, the function can complete initialization properly
     // This allows proper setup of profile/save data structures
-    sub_82124080(ctx, base);
-
+    __imp__sub_82124080(ctx, base);
     LOGF_WARNING("[INIT] sub_82124080 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -12824,6 +12824,7 @@ PPC_FUNC(sub_821928D0)
 // Adding wrapper to trace crash in file parsing path.
 // =============================================================================
 extern "C" void sub_82192980(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82192980(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82192980) {
     static int s_count = 0; ++s_count;
 
@@ -12835,9 +12836,7 @@ PPC_FUNC(sub_82192980) {
         LOGF_WARNING("[sub_82192980] #{} ENTER stream=0x{:08X} skip={} r1=0x{:08X}",
                      s_count, streamHandle, skipWhitespace, r1_before);
     }
-
-    sub_82192980(ctx, base);
-
+    __imp__sub_82192980(ctx, base);
     uint32_t result = ctx.r3.u32;
     if (s_count <= 20) {
         LOGF_WARNING("[sub_82192980] #{} EXIT r3=0x{:08X} (buffer ptr)", s_count, result);
