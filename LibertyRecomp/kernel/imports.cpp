@@ -10932,10 +10932,11 @@ PPC_FUNC(sub_829743A8) {
 }
 
 extern "C" void sub_8296C238(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8296C238(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8296C238) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[TRACE_EARLY] sub_8296C238 ENTER #{}", s_count);
-    sub_8296C238(ctx, base);
+    __imp__sub_8296C238(ctx, base);
     LOGF_WARNING("[TRACE_EARLY] sub_8296C238 EXIT #{} r3={}", s_count, ctx.r3.u32);
 }
 
