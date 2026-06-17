@@ -681,6 +681,24 @@ First guest-memory-enabled attempt result: with the full scanned image/function-
 - Push note: local commits remain unpushed because GitHub credential-manager requires an interactive prompt. Continue committing locally until credentials are restored, then push the accumulated branch.
 - Next Windows boundary: inspect `sub_827DB2A8`; confirm generated `__imp__sub_827DB2A8` and the exact wrapper call pattern before editing.
 
+2026-06-17 Windows wrapper continuation 42:
+
+- Confirmed `sub_827DB2A8` was another wrapper-recursion frame. The project-side wrapper called `sub_827DB2A8(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_827DB2A8)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.52.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_827DB2A8(...)` declaration, added `extern "C" void __imp__sub_827DB2A8(...)`, and changed only the logging wrapper body to call `__imp__sub_827DB2A8(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-1398fe47-b07f-4246-ba3f-44224d739d3e.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-30ff77d9-4e78-40dd-b40e-6d7c97c6228c.log`
+- Fresh smoke result: process exit code was `0x00000000`, but the VEH log still records `0xC00000FD` stack overflow. The run reached MMIO bridge writes, graphics backend attempts, guest thread startup, VBlank ticks through `#3`, `Guest code returned`, and a real VFS path resolution attempt for `platform:/textures/fonts` before the stack overflow trace.
+- VFS evidence: `[GTA::FileResolve] #1 path='platform:/textures/fonts'`, then `[VFS] NOT FOUND: 'platform:/textures/fonts' (stripped='textures/fonts')`. This is useful progress because the startup path is now reaching project-side content lookup before the next wrapper recursion.
+- Latest repeated frame is RVA `0x67166`; the map places `sub_82205390` at `0x1400670F0`, and objdump shows `0x140067161` is a call back to `0x1400670F0`, with return address `0x140067166`. This confirms the next stack frame is `sub_82205390` wrapper recursion.
+- Smoke execution note: verification used the same 15-second bounded `Start-Process` smoke and cleaned the temporary `portable.txt`, `game/default.xex`, and empty `game` directory from the build tree.
+- Push note: local commits remain unpushed because GitHub credential-manager requires an interactive prompt. Continue committing locally until credentials are restored, then push the accumulated branch.
+- Next Windows boundary: inspect `sub_82205390`; confirm generated `__imp__sub_82205390` and the exact wrapper call pattern before editing.
+
 ## Explicit Non-Goals
 
 - Do not claim or imply the Switch build is playable.
@@ -717,7 +735,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_827DB2A8` wrapper recursion.
+1. Inspect the Windows stack overflow now landing in `sub_82205390` wrapper recursion.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.

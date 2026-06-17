@@ -7827,10 +7827,11 @@ PPC_FUNC(sub_82205438) {
 
 // Trace internal calls of sub_82205438 (string/resource lookup)
 extern "C" void sub_827DB2A8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827DB2A8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827DB2A8) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOG_WARNING("[sub_82205438] sub_827DB2A8 ENTER");
-    sub_827DB2A8(ctx, base);
+    __imp__sub_827DB2A8(ctx, base);
     if (s_count <= 5) LOG_WARNING("[sub_82205438] sub_827DB2A8 EXIT");
 }
 
