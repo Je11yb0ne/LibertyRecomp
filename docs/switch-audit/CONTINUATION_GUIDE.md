@@ -1590,3 +1590,74 @@ Next stage entry condition:
 
 - Resume at `sub_827DAD60` semaphore/sync-table hot loop, still in Windows startup/resource bring-up.
 - Switch remains frozen unless a scoped Switch regression check is explicitly needed.
+
+## 2026-06-18 Windows Continuation 54: Semaphore and Finalization Wrapper Batch
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up beyond the instrumentation wrapper layer and into repeatable VFS/resource/function-dispatch blockers.
+- Keep ReXGlue generated `__imp__*` implementations as the target for project-side logging wrappers.
+- Record and commit this verified boundary, then continue immediately; this is not a playability milestone.
+
+Completed in this batch:
+
+- `sub_827DAD60`: semaphore/sync-table signal wrapper now calls generated `__imp__sub_827DAD60` after preserving the existing `SyncTable_Signal()` diagnostic semantics.
+- `sub_8227AC28`, `sub_82272290`, `sub_82212450`, `sub_822C5768`, and `sub_822D4C68`: final 63-SUBSYS finalization wrappers now call generated `__imp__*` implementations instead of recursively calling their own public aliases.
+- The finalization cluster was confirmed against `imports.cpp.old_runtime_backup` and generated ReXGlue sources before editing.
+
+Fresh verification:
+
+- Static GREEN check reported:
+  `GREEN_PASS_SEMAPHORE_FINALIZATION_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-e4817db6-f2dc-4715-bbbc-dcc03feb417f.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-42ca5d4f-95b9-45fc-8b07-f1e356943779.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. It moved past the previous `sub_827DAD60` semaphore hot loop and the `sub_8227AC28` finalization recursion frame. No VEH stack overflow dump appeared in this smoke log.
+- New runtime surface:
+  startup reaches deeper FX/resource probing, repeated `GuestThread` launch/return traces at `0x829B08E0`, `platform:/textures/hud`, `platform:/textures/skydome`, `platform:/textures/fx_Rain`, `platform:/data/effects/*`, and final setup exit.
+- Current stderr note:
+  in-range missing indirect calls remain at `829F6F60`, `829F6F80`, `829F6FA0`, `829F6FC0`, `829F7020`, `829F70E0`, `829F7100`, `829F71E8`, and `829F9DC8`; one `01000000` call remains; the dominant current repeated diagnostic is `107` occurrences of `[MISSING-FUNC] indirect call to 00000000 (in_range=0)`.
+- Current VFS note:
+  empty `GTA::FileResolve` requests still resolve as success to the build `game\` directory. Treat this as the next VFS/resource-boundary audit candidate, but do not change it without tracing the caller.
+- Temporary smoke files `portable.txt`, copied `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing. A first attempted hardlink smoke was invalid because Windows cannot hardlink across drives; the verified smoke used `Copy-Item`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Trace the `00000000` indirect-call storm.
+   Completion standard: identify the guest call site, register/source value, and whether this is an uninitialized callback slot, bad VFS/resource side effect, or expected nullable callback path.
+2. Inspect in-range missing indirect calls around `829F6F60..829F9DC8`.
+   Completion standard: determine whether they are missing generated function-table entries, data/callback table addresses, or benign one-time diagnostics.
+3. Audit empty-path VFS success.
+   Completion standard: trace at least one empty `GTA::FileResolve` caller and decide whether empty paths should fail, no-op, or keep resolving to `game\` during startup.
+4. Add the smallest diagnostic or runtime fix for the first proven root cause.
+   Completion standard: no behavior change unless the caller/source is identified; if it is another wrapper recursion, redirect only the wrapper to `__imp__*`.
+5. Rebuild and run bounded smoke after the next minimal fix.
+   Completion standard: Windows build succeeds and smoke either reduces the `00000000` indirect-call storm or produces a clearly different mapped blocker.
+6. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at the `00000000` missing indirect-call storm and empty-path VFS behavior, still in Windows startup/resource bring-up.
+- Switch remains frozen unless a scoped Switch regression check is explicitly needed.

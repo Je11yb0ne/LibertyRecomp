@@ -7280,10 +7280,15 @@ extern "C" void sub_82124540(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_82124540(PPCContext& ctx, uint8_t* base);
 // Final 5 subsystems in sub_82120FB8 - instrumentation to find blocker
 extern "C" void sub_8227AC28(PPCContext& ctx, uint8_t* base);  // World finalization
+extern "C" void __imp__sub_8227AC28(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82272290(PPCContext& ctx, uint8_t* base);  // Entity finalize
+extern "C" void __imp__sub_82272290(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82212450(PPCContext& ctx, uint8_t* base);  // Script finalize
+extern "C" void __imp__sub_82212450(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822C5768(PPCContext& ctx, uint8_t* base);  // Streaming finalize
+extern "C" void __imp__sub_822C5768(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822D4C68(PPCContext& ctx, uint8_t* base);  // Final setup
+extern "C" void __imp__sub_822D4C68(PPCContext& ctx, uint8_t* base);
 // Early subsystems in sub_82120FB8 - instrumentation to find blocking point
 extern "C" void sub_82270170(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_82270170(PPCContext& ctx, uint8_t* base);  // Entity system [8]
@@ -10564,6 +10569,7 @@ PPC_FUNC(sub_827D8AF8) {
 
 // sub_827DAD60 - called by worker thread 0x8298E700 at start - might signal "ready"
 extern "C" void sub_827DAD60(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827DAD60(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827DAD60) {
     static int s_count = 0; ++s_count;
     uint32_t handle = ctx.r3.u32;
@@ -10582,7 +10588,7 @@ PPC_FUNC(sub_827DAD60) {
     }
 
     // Call original
-    sub_827DAD60(ctx, base);
+    __imp__sub_827DAD60(ctx, base);
 
     if (s_count <= 30 || s_count % 100 == 0) {
         printf("[sub_827DAD60] [SEM_SIGNAL] sub_827DAD60 #%d EXIT handle=0x%08X\n",
@@ -11316,35 +11322,35 @@ PPC_FUNC(sub_821244B8) {
 PPC_FUNC(sub_8227AC28) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8227AC28 (World finalization) ENTER #{}", s_count);
-    sub_8227AC28(ctx, base);
+    __imp__sub_8227AC28(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8227AC28 (World finalization) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_82272290) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_82272290 (Entity finalize) ENTER #{}", s_count);
-    sub_82272290(ctx, base);
+    __imp__sub_82272290(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_82272290 (Entity finalize) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_82212450) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_82212450 (Script finalize) ENTER #{}", s_count);
-    sub_82212450(ctx, base);
+    __imp__sub_82212450(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_82212450 (Script finalize) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_822C5768) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_822C5768 (Streaming finalize) ENTER #{}", s_count);
-    sub_822C5768(ctx, base);
+    __imp__sub_822C5768(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_822C5768 (Streaming finalize) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_822D4C68) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_822D4C68 (Final setup) ENTER #{}", s_count);
-    sub_822D4C68(ctx, base);
+    __imp__sub_822D4C68(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_822D4C68 (Final setup) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
