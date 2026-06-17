@@ -10646,10 +10646,11 @@ PPC_FUNC(sub_82679950) {
 // Analysis: Xbox 360 world/game state initialization that likely blocks on hardware
 // Host game engine handles world setup, so Xbox init can be bypassed
 extern "C" void sub_8221D880(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8221D880(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8221D880) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[WORLD] sub_8221D880 #{} UN-STUBBED - sync table handles waits", s_count);
-    sub_8221D880(ctx, base);  // Let original run - sync table handles blocking
+    __imp__sub_8221D880(ctx, base);  // Let original run - sync table handles blocking
     LOGF_WARNING("[WORLD] sub_8221D880 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -11242,10 +11243,11 @@ PPC_FUNC(sub_82123E20) {
 }
 
 extern "C" void sub_821244B8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821244B8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_821244B8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[sub_82124080] sub_821244B8 (cleanup) ENTER #{}", s_count);
-    sub_821244B8(ctx, base);
+    __imp__sub_821244B8(ctx, base);
     LOGF_WARNING("[sub_82124080] sub_821244B8 (cleanup) EXIT #{}", s_count);
 }
 
@@ -13516,19 +13518,21 @@ PPC_FUNC(sub_827DB118) {
 
 // sub_8230D760 - called in loop by sub_8219FD88
 extern "C" void sub_8230D760(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8230D760(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8230D760) {
     static int s_count = 0; ++s_count;
     if (s_count <= 20) LOGF_WARNING("[8219FD88-TRACE] sub_8230D760 ENTER #{} r3=0x{:08X}", s_count, ctx.r3.u32);
-    sub_8230D760(ctx, base);
+    __imp__sub_8230D760(ctx, base);
     if (s_count <= 20) LOGF_WARNING("[8219FD88-TRACE] sub_8230D760 EXIT #{}", s_count);
 }
 
 // sub_8230D160 - called in loop by sub_8219FD88
 extern "C" void sub_8230D160(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8230D160(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8230D160) {
     static int s_count = 0; ++s_count;
     if (s_count <= 20) LOGF_WARNING("[8219FD88-TRACE] sub_8230D160 ENTER #{} r3=0x{:08X}", s_count, ctx.r3.u32);
-    sub_8230D160(ctx, base);
+    __imp__sub_8230D160(ctx, base);
     if (s_count <= 20) LOGF_WARNING("[8219FD88-TRACE] sub_8230D160 EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -13561,10 +13565,11 @@ PPC_FUNC(sub_824C1668) {
 
 // sub_8219FD88 - called early in sub_82120FB8, potential blocker
 extern "C" void sub_8219FD88(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8219FD88(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8219FD88) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8219FD88 ENTER #{}", s_count);
-    sub_8219FD88(ctx, base);
+    __imp__sub_8219FD88(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8219FD88 EXIT #{}", s_count);
 }
 

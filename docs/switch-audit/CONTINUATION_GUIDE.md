@@ -1076,3 +1076,74 @@ Next stage entry condition:
 
 - Resume at `sub_821244B8`, still in Windows startup bring-up.
 - Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
+
+## 2026-06-17 Windows Continuation 47: Startup Wrapper Batch 2
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up without stopping at individual wrapper fixes.
+- Keep using ReXGlue generated `__imp__*` implementations as the primary target and XenonRecomp only as auxiliary reference.
+- Maintain Switch as a frozen pre-guest regression baseline unless a Switch-specific regression check is explicitly needed.
+
+Completed in this batch:
+
+- `sub_821244B8`: startup file/profile wrapper now calls `__imp__sub_821244B8`.
+- `sub_8221D880`: config/resource wrapper now calls `__imp__sub_8221D880`.
+- `sub_8219FD88`: file/resource chain wrapper now calls `__imp__sub_8219FD88`.
+- `sub_8230D760`: loop helper wrapper now calls `__imp__sub_8230D760`.
+- `sub_8230D160`: loop helper wrapper now calls `__imp__sub_8230D160`.
+
+Fresh verification:
+
+- Combined static GREEN check reported:
+  `GREEN_PASS_current_five_wrappers_call_imp`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-c12a4018-d179-4429-a0fa-e8aaee0a1ccc.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-e440b9cc-55ce-4979-b8f8-35fe63fd0fb6.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. It moved past the old repeated frames `0x83772`, `0x7BDB4`, `0xA0A92`, `0x9F2AB`, and `0x9F786`, reached MMIO bridge writes, VBlank ticks, guest thread launches, VFS resolves for `platform:/textures/fonts` and `platform:/textures/buttons_360`, and content probes for `common:/DATA/LOADINGSCREENS_360.DAT`, `platform:/engineSettings.xml`, and `platform:/config/curves.dat`.
+- The latest repeated VEH frame moved to:
+  `rva=0x9FC54`.
+- Map result:
+  `rva=0x9FC54` maps to `sub_8219F9A0 + 0x1F4` in `imports.cpp.obj`.
+- Current root-cause check:
+  `sub_8219F9A0` is another direct wrapper self-recursion and should be the next fix target.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Fix `sub_8219F9A0` if RED check confirms direct wrapper recursion.
+   Completion standard: ReXGlue `__imp__sub_8219F9A0` declaration exists, wrapper no longer calls itself, build succeeds, smoke moves past `rva=0x9FC54`.
+2. Check adjacent `sub_8219F948` only if smoke maps to it or if a narrow same-chain batch is justified by the existing trace.
+   Completion standard: no bulk static rewrite; each edited wrapper has a mapped or directly adjacent startup-chain reason.
+3. Continue mapping repeated VEH frames through `LibertyRecomp.map`.
+   Completion standard: every next edit is backed by a smoke frame or a same-chain direct recursion check.
+4. Watch for the first non-wrapper blocker.
+   Completion standard: if the repeated frame leaves `imports.cpp.obj` or no same-symbol wrapper recursion exists, stop wrapper replacement and switch to root-cause tracing.
+5. Commit and push the next verified batch.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_8219F9A0`, still in Windows startup bring-up.
+- Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
