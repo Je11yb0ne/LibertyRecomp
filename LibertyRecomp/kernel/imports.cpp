@@ -8045,12 +8045,13 @@ PPC_FUNC(sub_82975608) {
 
 // Functions inside sub_82975608
 extern "C" void sub_829748D0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_829748D0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82974FF8(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_829748D0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[INIT] sub_829748D0 ENTER #{}", s_count);
-    sub_829748D0(ctx, base);
+    __imp__sub_829748D0(ctx, base);
     LOGF_WARNING("[INIT] sub_829748D0 EXIT #{} r3={}", s_count, ctx.r3.u32);
 }
 
