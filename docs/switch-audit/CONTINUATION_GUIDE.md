@@ -21,6 +21,8 @@ Local read-only references:
 
 The built ReXGlue CLI is usable now for experiments: `...\bin\rexglue.exe --version` reports `0.8.1.32-dev.gf22cd9d`, and `codegen` accepts the existing `glue\rexglue-sdk-main\gta4-recomp\gta4_config.toml`. Do not overwrite the tracked `generated` directory directly. First run any 0.8.1 codegen attempt into a temporary output directory and compare the generated function graph/import table against the currently building sources. Use it immediately for read-only CLI inspection, codegen dry-run/diff work, or a future ReXApp migration branch; continue using the current generated `__imp__` sources for the active wrapper-recursion startup chain.
 
+Fresh ReXGlue binary smoke on 2026-06-17: copied `gta4_config.toml` to `%TEMP%`, rewrote `file_path`, `patched_file_path`, and `out_directory_path` to temporary/absolute paths, and ran `rexglue --force codegen <temp-config>`. Result: exit `0`, generated `86` files in `C:\Users\JELLYB~1\AppData\Local\Temp\rexglue-codegen-smoke-cc7eaf6f-1dbf-429b-8209-26ae79dbbe7a\generated`, and completed in `45.6s`. The CLI migrated the old config to a temp `gta4_manifest.toml`, warned that legacy `patched_file_path` is no longer used, reported several current config addresses not in any code region, emitted unresolved branch diagnostics, and generated a stub for `0x82A77E28`. Treat these as diff/audit inputs before any tracked generated-code refresh.
+
 ## Current Stage Goal
 
 Mainline work has pivoted back to Windows runtime / unfinished upstream code. Switch work remains paused at the verified pre-guest baseline and should be used only for regression checks, packaging/content-layout fixes, or deliberately scoped pre-guest blockers.
