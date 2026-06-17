@@ -11142,12 +11142,13 @@ PPC_FUNC(sub_821250B0)
     LOGF_WARNING("[INIT] sub_821250B0 EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
+extern "C" void __imp__sub_82318F60(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82318F60)
 {
     static int s_count = 0;
     ++s_count;
     LOGF_WARNING("[INIT] sub_82318F60 ENTER #{}", s_count);
-    sub_82318F60(ctx, base);
+    __imp__sub_82318F60(ctx, base);
     LOGF_WARNING("[INIT] sub_82318F60 EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
