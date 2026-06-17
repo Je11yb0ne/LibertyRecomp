@@ -7870,6 +7870,7 @@ extern "C" void sub_8249BDC8(PPCContext& ctx, uint8_t* base);
 // We trace but let it run.
 // =============================================================================
 extern "C" void sub_82205390(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82205390(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82205390) {
     static int s_count = 0; ++s_count;
 
@@ -7877,7 +7878,7 @@ PPC_FUNC(sub_82205390) {
         LOG_WARNING("[RESOURCE] sub_82205390 ENTER (string table load)");
     }
 
-    sub_82205390(ctx, base);
+    __imp__sub_82205390(ctx, base);
 
     if (s_count <= 10) {
         LOGF_WARNING("[RESOURCE] sub_82205390 EXIT r3={}", ctx.r3.u32);
