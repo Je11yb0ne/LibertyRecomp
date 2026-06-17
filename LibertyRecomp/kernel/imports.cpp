@@ -7893,6 +7893,7 @@ extern "C" void __imp__sub_8297B8C0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_829735C8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829735C8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82974F90(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82974F90(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82670660(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82976570(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8297AD60(PPCContext& ctx, uint8_t* base);
@@ -7968,7 +7969,7 @@ PPC_FUNC(sub_82974F90) {
         LOG_WARNING("[AUDIO] sub_82974F90 ENTER - calling original (audio stream registration)");
     }
 
-    sub_82974F90(ctx, base);  // Now safe - memory initialized by sub_829735C8
+    __imp__sub_82974F90(ctx, base);  // Run generated original after sub_829735C8 init.
 
     if (s_count <= 3) {
         LOG_WARNING("[AUDIO] sub_82974F90 EXIT");
