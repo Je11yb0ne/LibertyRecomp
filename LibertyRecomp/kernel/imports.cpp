@@ -7665,6 +7665,7 @@ PPC_FUNC(sub_8218BE78) {
 extern "C" void sub_82673718(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_82673718(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82269098(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82269098(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82269098) {
     static int s_count = 0; ++s_count;
 
@@ -7674,7 +7675,7 @@ PPC_FUNC(sub_82269098) {
     // This function initializes resource manager data structures and creates the worker thread
     // The worker thread will be created but immediately return (stubbed), preventing deadlock
     // This allows proper initialization of resource manager infrastructure
-    sub_82269098(ctx, base);
+    __imp__sub_82269098(ctx, base);
 
     LOGF_WARNING("[INIT] sub_82269098 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
 }
