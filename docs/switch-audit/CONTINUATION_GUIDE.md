@@ -181,6 +181,20 @@ Next Windows boundary: fix `sub_82857240` only after confirming a generated `__i
 - Fresh smoke result: process still exits through `0xC00000FD` stack overflow, but the repeated frame moved past `sub_82673718`. Smoke reached graphics backend attempts, MMIO/VBlank startup, VBlank tick `#1`, `sub_8218BE28 #793/#794`, and multiple guest-thread traces entering/exiting `sub_829A7960`. Latest repeated frame is RVA `0x67A42`; subtract the PE/map `0x1000` delta to map offset `0x66A42`, which falls in `imports.cpp.obj` `sub_8297B8C0 + 0x1F2`.
 - Next Windows boundary: inspect `sub_8297B8C0`; likely another project-side trace wrapper inside `sub_82673718`, but confirm generated `__imp__sub_8297B8C0` and the exact call pattern before editing.
 
+2026-06-17 Windows wrapper continuation 9:
+
+- Confirmed `sub_8297B8C0 + 0x1F2` was another wrapper-recursion frame. The project-side wrapper called `sub_8297B8C0(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_8297B8C0)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.64.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_8297B8C0(...)` declaration, added `extern "C" void __imp__sub_8297B8C0(...)`, and changed only the wrapper body to call `__imp__sub_8297B8C0(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-f1d852c6-1376-4e7e-af62-a63d97f1caaf.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-91c8687c-dc8b-4470-8f4c-c37b20f044bc.log`
+- Fresh smoke result: smoke returned process exit code `0`, but the log still captured `VEH exception code=0xC00000FD`, so the runtime is not stable yet. The repeated frame moved past `sub_8297B8C0`. Smoke reached graphics backend attempts, MMIO/VBlank startup, GPU MMIO writes, VBlank tick `#1`, `sub_8218BE28 #793/#794`, and multiple guest-thread traces entering/exiting `sub_829A7960`. Latest repeated frame is RVA `0x67D6A`; subtract the PE/map `0x1000` delta to map offset `0x66D6A`, which falls in `imports.cpp.obj` `sub_829735C8 + 0x6A`.
+- Next Windows boundary: inspect `sub_829735C8`; likely another project-side trace wrapper in the same `sub_82673718` child-call block, but confirm generated `__imp__sub_829735C8` and the exact call pattern before editing.
+
 Current finding: a first full `Image::ParseImage()` attempt reached `default.xex` read success (`module bytes=11841536`) and did not return within the 240-second Ryujinx window. The subsequent Switch-local phase probe narrowed that broad stall to host-loader memory pressure: duplicate decrypted-buffer allocation can enter the GCC unwinder path, while in-place AES decryption completes and the next `0x11F0000` decompression output allocation fails cleanly.
 
 Previous stage result: lightweight XEX metadata preflight passes in Ryujinx with the real staged layout. It reads `default.xex`, validates the XEX2 header bounds, logs security/file-format/resource/import metadata, and stops before `Image::ParseImage()`, `LdrLoadModule()` guest-memory writes, and `GuestThread::Start()`.
@@ -235,7 +249,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_8297B8C0 + 0x1F2`.
+1. Inspect the Windows stack overflow now landing in `sub_829735C8 + 0x6A`.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.
