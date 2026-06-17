@@ -7775,10 +7775,11 @@ PPC_FUNC(sub_821DB1E0) {
     ctx.r3.u32 = 0;
 }
 
+extern "C" void __imp__sub_821DE390(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_821DE390) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[INIT] sub_821DE390 ENTER #{}", s_count);
-    sub_821DE390(ctx, base);
+    __imp__sub_821DE390(ctx, base);
     LOGF_WARNING("[INIT] sub_821DE390 EXIT #{}", s_count);
 }
 
