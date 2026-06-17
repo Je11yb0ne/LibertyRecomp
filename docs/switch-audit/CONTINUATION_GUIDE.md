@@ -1439,3 +1439,79 @@ Next stage entry condition:
 
 - Resume at `sub_827D85E0`, still in Windows startup bring-up.
 - Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
+
+## 2026-06-18 Windows Continuation 52: Render/ORCH Wrapper Batch
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up in larger verified batches instead of stopping after each single wrapper.
+- Keep using ReXGlue/reference-generated `__imp__*` implementations where wrappers were only logging shells.
+- Keep Switch frozen as the regression baseline; this batch is Windows-only and not a playability milestone.
+
+Completed in this batch:
+
+- `sub_827D85E0` and `sub_827D8620`: allocator/resource helper wrappers now call generated `__imp__*` implementations.
+- `sub_8285E6E8`, `sub_8286BBE8`, `sub_8286A970`, `sub_8285E2C0`, `sub_8285E6C0`, `sub_829D33B8`, and `sub_82871A18`: render/texture setup wrapper cluster now calls generated `__imp__*` implementations.
+- `sub_8285ACE8`, `sub_829CA360`, `sub_829CA240`, `sub_829D14E0`, `sub_82852610`, and `sub_829D5920`: ORCH/render loop wrappers now call generated `__imp__*` implementations.
+- `sub_82853CB0` and `sub_829D87E8` were intentionally left unchanged because they are deliberate host-side bypasses/hook shims in the existing runtime notes.
+
+Fresh verification:
+
+- Static GREEN checks reported:
+  `GREEN_PASS_sub_827D85E0_sub_827D8620_decl_and_call_imp`,
+  `GREEN_PASS_ALLOC_RENDER_CLUSTER_WRAPPERS_CALL_IMP`,
+  and `GREEN_PASS_ORCH_RENDER_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-4c375118-ed4c-4d09-81e2-e8698c583d1a.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-c54b663c-490f-460e-a71e-13d1001d4cff.log`
+- Smoke result:
+  exited `0x00000000` after the VEH handler logged stack overflow. It moved past the prior `sub_827D85E0`, `sub_827D8620`, `sub_8285E6E8`, `sub_8285ACE8`, and ORCH/render wrapper recursion blockers.
+- Current runtime surface:
+  startup still reaches graphics backend attempts, VBlank ticks, guest thread launches, `platform:/textures/*`, `platform:/materials`, `platform:/fragmentxml`, `platform:/xrt`, `/taskParams.txt`, and `platform:/data/decision/*` probes.
+- Current stderr note:
+  `[MISSING-FUNC] indirect call to 829F6F60` through nearby in-range guest addresses now appears before xstart, and the older `01000000`/`00000000` missing indirect calls remain later. Treat these as dispatch/function-pointer follow-ups after the immediate repeated-frame blocker is inspected.
+- The latest repeated VEH frame moved to:
+  `rva=0x89DC3`.
+- Map result:
+  `rva=0x89DC3` maps to `sub_828536B0 + 0x203` in `imports.cpp.obj`.
+- Supporting stack frames:
+  `rva=0x1B5B7`, `rva=0x125BF`, and `rva=0x1210A` map into `fmt` formatting functions in `main.cpp.obj`, likely reached from logging inside or below `sub_828536B0`.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect `sub_828536B0` before editing.
+   Completion standard: determine whether `sub_828536B0 + 0x203` is wrapper recursion, logging/fmt recursion, or a deeper render/resource loop.
+2. Compare `sub_828536B0` against `imports.cpp.old_runtime_backup` and `work/refs/GTA4Recomp`.
+   Completion standard: identify whether the correct behavior is generated `__imp__*`, host bypass, or additional diagnostics.
+3. Continue tracking in-range missing indirect calls around `829F6F60` through `829F9DC8`.
+   Completion standard: determine whether these are expected guest callback table entries missing from generated dispatch, or background diagnostics unrelated to the current stack overflow.
+4. Rebuild and run bounded smoke after the next minimal fix.
+   Completion standard: Windows build succeeds and smoke either moves past `rva=0x89DC3` or produces a clearly different mapped blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_828536B0`, still in Windows startup/render-resource bring-up.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
