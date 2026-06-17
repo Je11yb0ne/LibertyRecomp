@@ -7324,16 +7324,26 @@ extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_821A8278(PPCContext& ctx, uint8_t* base);  // HUD component [16]
 extern "C" void sub_821BC9E0(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_821BC9E0(PPCContext& ctx, uint8_t* base);  // Menu system [17]
-extern "C" void sub_822DB4B0(PPCContext& ctx, uint8_t* base);  // Cutscene system [18]
-extern "C" void sub_821B7218(PPCContext& ctx, uint8_t* base);  // Mission system [19]
-extern "C" void sub_822498F8(PPCContext& ctx, uint8_t* base);  // Checkpoint system [20]
-extern "C" void sub_8225DC40(PPCContext& ctx, uint8_t* base);  // Weather system [21]
-extern "C" void sub_821E24E0(PPCContext& ctx, uint8_t* base);  // Population system [22]
-extern "C" void sub_821DFD18(PPCContext& ctx, uint8_t* base);  // Traffic system [23]
-extern "C" void sub_8220E108(PPCContext& ctx, uint8_t* base);  // Wanted system [24]
-extern "C" void sub_821D8358(PPCContext& ctx, uint8_t* base);  // Map/GPS init [26]
-extern "C" void sub_821EA0B8(PPCContext& ctx, uint8_t* base);  // Blip system [27]
-extern "C" void sub_82200EB8(PPCContext& ctx, uint8_t* base);  // Stats system [30]
+extern "C" void sub_822DB4B0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_822DB4B0(PPCContext& ctx, uint8_t* base);  // Cutscene system [18]
+extern "C" void sub_821B7218(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821B7218(PPCContext& ctx, uint8_t* base);  // Mission system [19]
+extern "C" void sub_822498F8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_822498F8(PPCContext& ctx, uint8_t* base);  // Checkpoint system [20]
+extern "C" void sub_8225DC40(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8225DC40(PPCContext& ctx, uint8_t* base);  // Weather system [21]
+extern "C" void sub_821E24E0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821E24E0(PPCContext& ctx, uint8_t* base);  // Population system [22]
+extern "C" void sub_821DFD18(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821DFD18(PPCContext& ctx, uint8_t* base);  // Traffic system [23]
+extern "C" void sub_8220E108(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8220E108(PPCContext& ctx, uint8_t* base);  // Wanted system [24]
+extern "C" void sub_821D8358(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821D8358(PPCContext& ctx, uint8_t* base);  // Map/GPS init [26]
+extern "C" void sub_821EA0B8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821EA0B8(PPCContext& ctx, uint8_t* base);  // Blip system [27]
+extern "C" void sub_82200EB8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82200EB8(PPCContext& ctx, uint8_t* base);  // Stats system [30]
 
 // Internal functions in sub_82120C48 - find exact blocker
 extern "C" void sub_821E9658(PPCContext& ctx, uint8_t* base);
@@ -10478,6 +10488,7 @@ PPC_FUNC(sub_822DE5F0) {
 
 // sub_827D9C50 - called for large memory allocations, potential blocker
 extern "C" void sub_827D9C50(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827D9C50(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827D9C50) {
     static int s_count = 0; ++s_count;
     uint32_t allocSize = ctx.r4.u32;
@@ -10486,7 +10497,7 @@ PPC_FUNC(sub_827D9C50) {
     if (s_count <= 10 || isLarge) {
         LOGF_WARNING("[ALLOC] sub_827D9C50 #{} ENTER size={}", s_count, allocSize);
     }
-    sub_827D9C50(ctx, base);
+    __imp__sub_827D9C50(ctx, base);
     if (s_count <= 10 || isLarge) {
         LOGF_WARNING("[ALLOC] sub_827D9C50 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
     }
@@ -10494,6 +10505,7 @@ PPC_FUNC(sub_827D9C50) {
 
 // sub_827DA8E0 - allocator function called via vtable for large allocs
 extern "C" void sub_827DA8E0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827DA8E0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827DA8E0) {
     static int s_count = 0; ++s_count;
     uint32_t allocSize = ctx.r4.u32;
@@ -10502,7 +10514,7 @@ PPC_FUNC(sub_827DA8E0) {
     if (s_count <= 10 || isLarge) {
         LOGF_WARNING("[ALLOC] sub_827DA8E0 #{} ENTER size={}", s_count, allocSize);
     }
-    sub_827DA8E0(ctx, base);
+    __imp__sub_827DA8E0(ctx, base);
     if (s_count <= 10 || isLarge) {
         LOGF_WARNING("[ALLOC] sub_827DA8E0 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
     }
@@ -12017,42 +12029,42 @@ PPC_FUNC(sub_821BC9E0) {
 PPC_FUNC(sub_822DB4B0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_822DB4B0 (Cutscene system) ENTER #{}", s_count);
-    sub_822DB4B0(ctx, base);
+    __imp__sub_822DB4B0(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_822DB4B0 (Cutscene system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821B7218) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821B7218 (Mission system) ENTER #{}", s_count);
-    sub_821B7218(ctx, base);
+    __imp__sub_821B7218(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821B7218 (Mission system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_822498F8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_822498F8 (Checkpoint system) ENTER #{}", s_count);
-    sub_822498F8(ctx, base);
+    __imp__sub_822498F8(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_822498F8 (Checkpoint system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_8225DC40) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8225DC40 (Weather system) ENTER #{}", s_count);
-    sub_8225DC40(ctx, base);
+    __imp__sub_8225DC40(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8225DC40 (Weather system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821E24E0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821E24E0 (Population system) ENTER #{}", s_count);
-    sub_821E24E0(ctx, base);
+    __imp__sub_821E24E0(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821E24E0 (Population system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821DFD18) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821DFD18 (Traffic system) ENTER #{}", s_count);
-    sub_821DFD18(ctx, base);
+    __imp__sub_821DFD18(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821DFD18 (Traffic system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -12060,12 +12072,13 @@ PPC_FUNC(sub_821DFD18) {
 // Was stubbed because: call 30 (sub_82430C60) blocks on sync primitives
 // Now: Sync hooks prevent blocking, so initialization will complete
 extern "C" void sub_8220E108(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8220E108(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8220E108) {
     static int s_count = 0; ++s_count;
     printf("[REIMPL] sub_8220E108 #%d ENTER - Wanted system (now non-blocking)\n", s_count);
     fflush(stdout);
 
-    sub_8220E108(ctx, base);
+    __imp__sub_8220E108(ctx, base);
 
     printf("[REIMPL] sub_8220E108 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);
@@ -12074,14 +12087,14 @@ PPC_FUNC(sub_8220E108) {
 PPC_FUNC(sub_821D8358) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821D8358 (Map/GPS init) ENTER #{}", s_count);
-    sub_821D8358(ctx, base);
+    __imp__sub_821D8358(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821D8358 (Map/GPS init) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821EA0B8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821EA0B8 (Blip system) ENTER #{}", s_count);
-    sub_821EA0B8(ctx, base);
+    __imp__sub_821EA0B8(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821EA0B8 (Blip system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -12090,12 +12103,13 @@ PPC_FUNC(sub_821EA0B8) {
 // Was stubbed because: blocks on sync primitives
 // Now: Sync hooks prevent blocking
 extern "C" void sub_82200EB8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82200EB8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82200EB8) {
     static int s_count = 0; ++s_count;
     printf("[REIMPL] sub_82200EB8 #%d ENTER - Stats system (now non-blocking)\n", s_count);
     fflush(stdout);
 
-    sub_82200EB8(ctx, base);
+    __imp__sub_82200EB8(ctx, base);
 
     printf("[REIMPL] sub_82200EB8 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);

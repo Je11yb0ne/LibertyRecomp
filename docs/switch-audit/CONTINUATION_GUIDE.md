@@ -1366,3 +1366,76 @@ Next stage entry condition:
 
 - Resume at `sub_827DA8E0` and the `01000000` indirect call, still in Windows startup bring-up.
 - Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
+
+## 2026-06-18 Windows Continuation 51: Allocator/SubSystem Wrapper Batch
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up past the remaining project-side startup wrappers and into repeatable resource/VFS loading.
+- Keep ReXGlue generated `__imp__*` implementations as the implementation target for logging wrappers.
+- Record progress in batches but continue immediately after commit; this is not a playability milestone.
+
+Completed in this batch:
+
+- `sub_827DA8E0`: large-allocation vtable wrapper now calls `__imp__sub_827DA8E0`.
+- `sub_827D9C50`: large-allocation helper wrapper now calls `__imp__sub_827D9C50`.
+- `sub_822DB4B0`, `sub_821B7218`, and `sub_822498F8`: Cutscene, Mission, and Checkpoint subsystem wrappers now call generated `__imp__*` implementations.
+- `sub_8225DC40`, `sub_821E24E0`, `sub_821DFD18`, `sub_8220E108`, `sub_821D8358`, `sub_821EA0B8`, and `sub_82200EB8`: Weather, Population, Traffic, Wanted, Map/GPS, Blip, and Stats subsystem wrappers now call generated `__imp__*` implementations.
+
+Fresh verification:
+
+- Static GREEN check reported:
+  `GREEN_PASS_ALLOC_AND_SUBSYSTEM_BATCH_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp docs/switch-audit/CONTINUATION_GUIDE.md` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-4f25601b-3adb-4e29-b856-b91dbd2ea744.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-f18d0b8a-c29b-4a29-bb45-264f362e6943.log`
+- Smoke result:
+  exited `0x00000000` after the VEH handler logged stack overflow. It moved past allocator wrappers and the `[63-SUBSYS]` Weather/Stats startup wrapper chain. It now reaches a deeper resource-loading surface with `platform:/materials`, `platform:/fragmentxml`, `platform:/xrt`, `/taskParams.txt`, many `platform:/data/decision/*.ped`, and `platform:/data/decision/Combat/*.cmb` probes.
+- Current VFS note:
+  empty `GTA::FileResolve` requests currently resolve to the build `game\` directory and report success; this is now visible evidence for a future VFS/resource-boundary audit.
+- Current stderr note:
+  `[MISSING-FUNC] indirect call to 01000000 (in_range=0)` still appears, and later smoke also logs missing indirect calls to `00000000`. Treat these as follow-up dispatch/function-pointer blockers after the immediate repeated-frame wrapper is handled.
+- The latest repeated VEH frame moved to:
+  `rva=0x70BCA`.
+- Map result:
+  `rva=0x70BCA` maps to `sub_827D85E0 + 0x6A` in `imports.cpp.obj`.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/*.patch`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect `sub_827D85E0` before editing.
+   Completion standard: confirm whether it is direct wrapper recursion with a generated `__imp__sub_827D85E0`, or a different allocator/dispatch issue.
+2. Continue tracking missing indirect calls.
+   Completion standard: after `sub_827D85E0` is cleared, determine whether `01000000` and `00000000` are still present and whether they are causal or background diagnostics.
+3. Investigate the empty-path VFS success path once wrapper recursion is no longer the top repeated frame.
+   Completion standard: empty path resolution behavior is either intentionally tolerated for startup or changed with evidence from the caller path.
+4. Rebuild and run bounded smoke after each minimal fix.
+   Completion standard: Windows build succeeds and smoke either moves past `rva=0x70BCA` or produces a clearly different mapped blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe`.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_827D85E0`, still in Windows startup bring-up.
+- Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
