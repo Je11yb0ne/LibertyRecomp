@@ -7316,11 +7316,14 @@ extern "C" void sub_822E49A0(PPCContext& ctx, uint8_t* base);  // Inside sub_822
 extern "C" void sub_8222F7E8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_8222F7E8(PPCContext& ctx, uint8_t* base);  // Inside sub_82221410 [11] final
 
-extern "C" void sub_8226CB50(PPCContext& ctx, uint8_t* base);  // Camera system [14]
+extern "C" void sub_8226CB50(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8226CB50(PPCContext& ctx, uint8_t* base);  // Camera system [14]
 // Subsystems after Camera system [15-30] - INSTRUMENTATION TO FIND BLOCKER
 extern "C" void sub_821A8868(PPCContext& ctx, uint8_t* base);  // HUD init [15]
-extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);  // HUD component [16]
-extern "C" void sub_821BC9E0(PPCContext& ctx, uint8_t* base);  // Menu system [17]
+extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821A8278(PPCContext& ctx, uint8_t* base);  // HUD component [16]
+extern "C" void sub_821BC9E0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821BC9E0(PPCContext& ctx, uint8_t* base);  // Menu system [17]
 extern "C" void sub_822DB4B0(PPCContext& ctx, uint8_t* base);  // Cutscene system [18]
 extern "C" void sub_821B7218(PPCContext& ctx, uint8_t* base);  // Mission system [19]
 extern "C" void sub_822498F8(PPCContext& ctx, uint8_t* base);  // Checkpoint system [20]
@@ -11606,7 +11609,7 @@ PPC_FUNC(sub_8222F7E8) {
 PPC_FUNC(sub_8226CB50) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8226CB50 (Camera system) ENTER #{}", s_count);
-    sub_8226CB50(ctx, base);
+    __imp__sub_8226CB50(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8226CB50 (Camera system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 
 }
@@ -11631,6 +11634,7 @@ extern "C" void sub_8249BA90(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A8060(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A8868(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821A8278(PPCContext& ctx, uint8_t* base);
 // REMOVED: extern "C" void sub_824E14B8(PPCContext& ctx, uint8_t* base);  // Init function called by sub_82300C78 // v1 addr
 
 // =============================================================================
@@ -11997,7 +12001,7 @@ PPC_FUNC(sub_821A8278) {
     printf("[REIMPL] sub_821A8278 #%d ENTER - HUD component\n", s_count);
     fflush(stdout);
 
-    sub_821A8278(ctx, base);
+    __imp__sub_821A8278(ctx, base);
 
     printf("[REIMPL] sub_821A8278 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);
@@ -12006,7 +12010,7 @@ PPC_FUNC(sub_821A8278) {
 PPC_FUNC(sub_821BC9E0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821BC9E0 (Menu system) ENTER #{}", s_count);
-    sub_821BC9E0(ctx, base);
+    __imp__sub_821BC9E0(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821BC9E0 (Menu system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 

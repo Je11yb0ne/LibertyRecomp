@@ -1295,3 +1295,74 @@ Next stage entry condition:
 
 - Resume at `sub_8226CB50`, still in Windows startup bring-up.
 - Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
+
+## 2026-06-18 Windows Continuation 50: Camera/HUD/Menu Wrapper Batch
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up through the startup subsystem wrapper layer.
+- Keep ReXGlue generated `__imp__*` implementations as the primary implementation target for project-side wrappers.
+- Do not treat this wrapper batch as a stopping point; continue into the next real VFS/resource, thread, MMIO/VBlank, GPU, or function-pointer blocker after recording and pushing.
+
+Completed in this batch:
+
+- `sub_8226CB50`: camera system wrapper now calls `__imp__sub_8226CB50`.
+- `sub_821A8278`: HUD component wrapper now calls `__imp__sub_821A8278` while preserving the surrounding HUD diagnostic logging.
+- `sub_821BC9E0`: menu system wrapper now calls `__imp__sub_821BC9E0`.
+- Preserved `sub_821A8868` as an expanded hand-written HUD initialization reimplementation; it was not converted to a generated call-through wrapper.
+
+Fresh verification:
+
+- Static GREEN check reported:
+  `GREEN_PASS_CAMERA_HUD_MENU_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-4163f911-1e9d-401a-bb63-13a1b98223cd.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-69c6e8fa-8b2e-4abc-9cb7-a3370aeb1009.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. It moved past the camera wrapper, HUD init, HUD component, and menu wrapper recursion. Startup still reaches graphics backend attempts, MMIO bridge writes, VBlank ticks, guest thread launches, VFS probes for `platform:/textures/fonts` and `platform:/textures/buttons_360`, and content probes for `common:/DATA/LOADINGSCREENS_360.DAT`, `platform:/engineSettings.xml`, `platform:/config/curves.dat`, `embedded:/dcl/*`, and `platform:/dcl/*`.
+- The latest repeated VEH frame moved to:
+  `rva=0x79EC6`.
+- Map result:
+  `rva=0x79EC6` maps to `sub_827DA8E0 + 0x226` in `imports.cpp.obj`.
+- Current stderr also logs:
+  `[MISSING-FUNC] indirect call to 01000000 (in_range=0)`.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/*.patch`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect `sub_827DA8E0` before editing.
+   Completion standard: identify whether `sub_827DA8E0 + 0x226` is direct wrapper recursion, a bad indirect-call dispatch path, or a deeper function-pointer/VFS side effect.
+2. Trace the `01000000` indirect call source.
+   Completion standard: determine whether `01000000` is a corrupted guest function pointer, a placeholder/null-adjacent host pointer, or an expected guest address that is missing from the generated dispatch table.
+3. Make the smallest root-cause fix.
+   Completion standard: if it is wrapper recursion, redirect only the wrapper to generated `__imp__*`; if not, add diagnostic evidence at the failing boundary before changing runtime behavior.
+4. Rebuild and run bounded smoke.
+   Completion standard: Windows build succeeds, smoke moves past `rva=0x79EC6` or produces a clearly different mapped blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe`.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_827DA8E0` and the `01000000` indirect call, still in Windows startup bring-up.
+- Switch remains frozen as a regression baseline; do not build `LibertyRecompExeFs` or `LibertyRecompNro` unless Windows changes require Switch regression testing or a Switch-specific task is explicitly scoped.
