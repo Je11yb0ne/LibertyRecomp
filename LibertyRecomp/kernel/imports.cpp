@@ -7928,10 +7928,11 @@ PPC_FUNC(sub_829735C8) {
 
 // Trace internal calls of sub_829735C8
 extern "C" void sub_829C52F0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_829C52F0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_829C52F0) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOG_WARNING("[sub_829735C8] sub_829C52F0 ENTER");
-    sub_829C52F0(ctx, base);
+    __imp__sub_829C52F0(ctx, base);
     if (s_count <= 5) LOG_WARNING("[sub_829735C8] sub_829C52F0 EXIT");
 }
 
