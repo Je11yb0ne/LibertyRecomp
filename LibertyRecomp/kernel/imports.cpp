@@ -7853,10 +7853,11 @@ PPC_FUNC(sub_827DB2A8) {
 //   - Format path, resolve via VFS, return file info
 // =============================================================================
 extern "C" void sub_827EDED0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827EDED0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827EDED0) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOGF_WARNING("[PATH_FMT] sub_827EDED0 ENTER #{} r3=0x{:08X} r4={} r5=0x{:08X}", s_count, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
-    sub_827EDED0(ctx, base);
+    __imp__sub_827EDED0(ctx, base);
     if (s_count <= 5) LOGF_WARNING("[PATH_FMT] sub_827EDED0 EXIT #{}", s_count);
 }
 extern "C" void sub_8249BDC8(PPCContext& ctx, uint8_t* base);
