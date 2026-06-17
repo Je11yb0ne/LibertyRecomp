@@ -1661,3 +1661,76 @@ Next stage entry condition:
 
 - Resume at the `00000000` missing indirect-call storm and empty-path VFS behavior, still in Windows startup/resource bring-up.
 - Switch remains frozen unless a scoped Switch regression check is explicitly needed.
+
+## 2026-06-18 Windows Continuation 55: Indirect-Call Source Diagnostics
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up past wrapper-recursion cleanup into function-dispatch, VFS/resource, and renderer-preflight blockers.
+- Preserve the current ReXGlue-generated dispatch behavior while collecting enough source-register evidence to stop guessing at missing indirect calls.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Added bounded diagnostics to `PPC_CALL_INDIRECT_FUNC` in `glue/rexglue-sdk-main/include/rex/ppc/context.h`.
+- Missing indirect calls now log the first 256 call sites with target address, `in_range`, `lr`, `ctr`, `r1`, and `r12`.
+- The diagnostic is intentionally behavior-preserving: it does not install fallback handlers, skip calls, or alter guest register state.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- glue/rexglue-sdk-main/include/rex/ppc/context.h docs/switch-audit/CONTINUATION_GUIDE.md` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-indirect-fresh-dd53455e-5a33-4cfe-859b-9bca0bf73138.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-indirect-fresh-7dfef8f1-9d87-438a-8413-1d0d2df2e151.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. The diagnostic shows the first in-range missing targets come from the static constructor table executor at `lr=0x829A7E80`, and the later `00000000` calls come from distinct resource/render/finalization paths rather than one anonymous repeated site.
+
+Key evidence:
+
+- In-range missing constructor targets:
+  `0x829F6F60`, `0x829F6F80`, `0x829F6FA0`, `0x829F6FC0`, `0x829F7020`, `0x829F70E0`, `0x829F7100`, `0x829F71E8`, and `0x829F9DC8`, all with `lr=0x829A7E80`.
+- Out-of-range non-null target:
+  `0x01000000` with `lr=0x82121160`.
+- Dominant null targets include call sites around:
+  `0x82753D70`, `0x824315D4`, `0x821C5020`, `0x822F0684`, `0x822F97A8`, `0x82200F74`, `0x827513F4`, `0x8275C440`, `0x8251D638`, and `0x823190D4`.
+- The smoke still reaches repeated resource probes such as `platform:/textures/fx_Rain`, embedded DCL lookups, and final setup traces; this remains startup/resource/runtime bring-up, not playability.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `glue/rexglue-sdk-main/include/rex/ppc/context.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  and, for the next fix stage only after root-cause confirmation, `LibertyRecomp/kernel/imports.cpp`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect the constructor-table missing targets around `0x829F6F60..0x829F9DC8`.
+   Completion standard: determine whether these are valid function starts omitted from `PPCFuncMappings`, data/callback table entries, or thunks that ReXGlue intentionally skipped.
+2. Trace the first non-null out-of-range target `0x01000000`.
+   Completion standard: identify the source value at `lr=0x82121160` and whether it is a malformed function pointer, endian/flagged pointer, or expected nullable dispatch path.
+3. Trace the highest-volume `00000000` call-site cluster.
+   Completion standard: choose one repeated LR cluster, map it to a generated function, and identify the guest field/table slot feeding CTR.
+4. Add the smallest next diagnostic or runtime fix for the first proven root cause.
+   Completion standard: no behavior change unless the caller/source is identified; if the fix is generated-dispatch coverage, first prove it with a temporary ReXGlue codegen/diff or IDA/source evidence.
+5. Rebuild and run bounded smoke after the next minimal change.
+   Completion standard: Windows build succeeds and smoke either removes/reclassifies the target missing-call cluster or produces a clearly different blocker.
+6. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at constructor-table target coverage and the `01000000` / `00000000` indirect-call source tracing.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.

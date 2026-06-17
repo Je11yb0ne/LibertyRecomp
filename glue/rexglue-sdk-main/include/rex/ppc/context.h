@@ -118,6 +118,8 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 // Requires ppc_config.h to be included first.
 
 #ifdef PPC_CONFIG_H_INCLUDED
+inline std::atomic<uint32_t> g_ppc_missing_indirect_log_count{0};
+
 // Function table lookup: indexed by (addr - CODE_BASE)
 #undef PPC_LOOKUP_FUNC
 #define PPC_LOOKUP_FUNC(x, y) \
@@ -133,9 +135,16 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
     if (_icf_fn) {                                                                       \
       _icf_fn(ctx, base);                                                                \
     } else {                                                                             \
-      fprintf(stderr, "[MISSING-FUNC] indirect call to %08X (in_range=%d)\n",           \
-              _icf_addr, (int)_icf_in_range);                                            \
-      fflush(stderr);                                                                    \
+      uint32_t _icf_log = g_ppc_missing_indirect_log_count.fetch_add(                    \
+          1, std::memory_order_relaxed);                                                 \
+      if (_icf_log < 256) {                                                              \
+        fprintf(stderr,                                                                  \
+                "[MISSING-FUNC] #%u indirect call to %08X (in_range=%d) "               \
+                "lr=%08llX ctr=%08X r1=%08X r12=%08X\n",                               \
+                _icf_log + 1, _icf_addr, (int)_icf_in_range,                             \
+                (unsigned long long)ctx.lr, ctx.ctr.u32, ctx.r1.u32, ctx.r12.u32);       \
+        fflush(stderr);                                                                  \
+      }                                                                                  \
     }                                                                                    \
   } while (0)
 
