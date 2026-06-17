@@ -7363,11 +7363,17 @@ extern "C" void __imp__sub_82209280(PPCContext& ctx, uint8_t* base);  // Inside 
 // Internal functions in sub_8249D6F0 (display mode setup) - DEEP INSTRUMENTATION
 // =============================================================================
 extern "C" void sub_82126498(PPCContext& ctx, uint8_t* base);  // Resource cleanup
+extern "C" void __imp__sub_82126498(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_828536B0(PPCContext& ctx, uint8_t* base);  // Buffer init
+extern "C" void __imp__sub_828536B0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8260E3B8(PPCContext& ctx, uint8_t* base);  // Display mode setup
+extern "C" void __imp__sub_8260E3B8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8260E3D8(PPCContext& ctx, uint8_t* base);  // Display finalize
+extern "C" void __imp__sub_8260E3D8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8286A748(PPCContext& ctx, uint8_t* base);  // Unknown init
+extern "C" void __imp__sub_8286A748(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8286A890(PPCContext& ctx, uint8_t* base);  // Unknown setup
+extern "C" void __imp__sub_8286A890(PPCContext& ctx, uint8_t* base);
 
 // Internal functions of sub_822B4D68 - find exact blocking point
 extern "C" void sub_821EC018(PPCContext& ctx, uint8_t* base);
@@ -9566,7 +9572,7 @@ PPC_FUNC(sub_8286CCA0) {
                 // Original: bl sub_82126498; li r3,0
                 ctx.r3.u64 = r31_val;
                 ctx.lr = 0x8286CD28;
-                sub_82126498(ctx, base);
+                __imp__sub_82126498(ctx, base);
                 ctx.r3.s64 = 0;
             } else {
                 ctx.r3.u64 = r31_val;
@@ -11503,42 +11509,42 @@ PPC_FUNC(sub_8249D6F0) {
 PPC_FUNC(sub_82126498) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_82126498 (cleanup) ENTER #{} r3=0x{:08X}", s_count, ctx.r3.u32);
-    sub_82126498(ctx, base);
+    __imp__sub_82126498(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_82126498 (cleanup) EXIT #{}", s_count);
 }
 
 PPC_FUNC(sub_828536B0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_828536B0 (buf init) ENTER #{} r3=0x{:08X} r4={}", s_count, ctx.r3.u32, ctx.r4.u32);
-    sub_828536B0(ctx, base);
+    __imp__sub_828536B0(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_828536B0 (buf init) EXIT #{}", s_count);
 }
 
 PPC_FUNC(sub_8260E3B8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_8260E3B8 (disp mode) ENTER #{} r3={} r4={} r5={}", s_count, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
-    sub_8260E3B8(ctx, base);
+    __imp__sub_8260E3B8(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_8260E3B8 (disp mode) EXIT #{}", s_count);
 }
 
 PPC_FUNC(sub_8260E3D8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_8260E3D8 (disp final) ENTER #{} r3={}", s_count, ctx.r3.u32);
-    sub_8260E3D8(ctx, base);
+    __imp__sub_8260E3D8(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_8260E3D8 (disp final) EXIT #{}", s_count);
 }
 
 PPC_FUNC(sub_8286A748) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_8286A748 (init) ENTER #{} r3=0x{:08X}", s_count, ctx.r3.u32);
-    sub_8286A748(ctx, base);
+    __imp__sub_8286A748(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_8286A748 (init) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_8286A890) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[8249D6F0-INT] sub_8286A890 (setup) ENTER #{} r3=0x{:08X} r4=0x{:08X}", s_count, ctx.r3.u32, ctx.r4.u32);
-    sub_8286A890(ctx, base);
+    __imp__sub_8286A890(ctx, base);
     LOGF_WARNING("[8249D6F0-INT] sub_8286A890 (setup) EXIT #{}", s_count);
 }
 
@@ -14042,23 +14048,36 @@ PPC_FUNC(sub_822AFAF8) {
 // Remaining 63-subsystem hooks (after Stats system)
 // =========================================================================
 extern "C" void sub_8212FB78(PPCContext& ctx, uint8_t* base);  // Friend system
+extern "C" void __imp__sub_8212FB78(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8219ADF0(PPCContext& ctx, uint8_t* base);  // Online system
+extern "C" void __imp__sub_8219ADF0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8212F578(PPCContext& ctx, uint8_t* base);  // Leaderboard
+extern "C" void __imp__sub_8212F578(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8212EDC8(PPCContext& ctx, uint8_t* base);  // Achievement
+extern "C" void __imp__sub_8212EDC8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82138710(PPCContext& ctx, uint8_t* base);  // Replay system
+extern "C" void __imp__sub_82138710(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821B2ED8(PPCContext& ctx, uint8_t* base);  // Camera recording
+extern "C" void __imp__sub_821B2ED8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822467B8(PPCContext& ctx, uint8_t* base);  // Cinematic camera
+extern "C" void __imp__sub_822467B8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82208460(PPCContext& ctx, uint8_t* base);  // Photo mode
+extern "C" void __imp__sub_82208460(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821B9DA8(PPCContext& ctx, uint8_t* base);  // TV system
+extern "C" void __imp__sub_821B9DA8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82258100(PPCContext& ctx, uint8_t* base);  // Internet cafe
+extern "C" void __imp__sub_82258100(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A03A0(PPCContext& ctx, uint8_t* base);  // Phone system
+extern "C" void __imp__sub_821A03A0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8232A2C0(PPCContext& ctx, uint8_t* base);  // Dating system
+extern "C" void __imp__sub_8232A2C0(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82125478(PPCContext& ctx, uint8_t* base);  // Final setup
+extern "C" void __imp__sub_82125478(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_8212FB78) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8212FB78 (Friend system) ENTER #{}", s_count);
-    sub_8212FB78(ctx, base);
+    __imp__sub_8212FB78(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8212FB78 (Friend system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -14071,7 +14090,7 @@ PPC_FUNC(sub_8219ADF0) {
     printf("[REIMPL] sub_8219ADF0 #%d ENTER - Online system (now non-blocking)\n", s_count);
     fflush(stdout);
 
-    sub_8219ADF0(ctx, base);
+    __imp__sub_8219ADF0(ctx, base);
 
     printf("[REIMPL] sub_8219ADF0 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);
@@ -14086,42 +14105,42 @@ PPC_FUNC(sub_8219ADF0) {
 PPC_FUNC(sub_8212F578) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8212F578 (Leaderboard) ENTER #{}", s_count);
-    sub_8212F578(ctx, base);
+    __imp__sub_8212F578(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8212F578 (Leaderboard) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_8212EDC8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8212EDC8 (Achievement) ENTER #{}", s_count);
-    sub_8212EDC8(ctx, base);
+    __imp__sub_8212EDC8(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8212EDC8 (Achievement) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_82138710) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_82138710 (Replay system) ENTER #{}", s_count);
-    sub_82138710(ctx, base);
+    __imp__sub_82138710(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_82138710 (Replay system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821B2ED8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821B2ED8 (Camera recording) ENTER #{}", s_count);
-    sub_821B2ED8(ctx, base);
+    __imp__sub_821B2ED8(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821B2ED8 (Camera recording) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_822467B8) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_822467B8 (Cinematic camera) ENTER #{}", s_count);
-    sub_822467B8(ctx, base);
+    __imp__sub_822467B8(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_822467B8 (Cinematic camera) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_82208460) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_82208460 (Photo mode) ENTER #{}", s_count);
-    sub_82208460(ctx, base);
+    __imp__sub_82208460(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_82208460 (Photo mode) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -14134,7 +14153,7 @@ PPC_FUNC(sub_821B9DA8) {
     printf("[REIMPL] sub_821B9DA8 #%d ENTER - TV system (now non-blocking)\n", s_count);
     fflush(stdout);
 
-    sub_821B9DA8(ctx, base);
+    __imp__sub_821B9DA8(ctx, base);
 
     printf("[REIMPL] sub_821B9DA8 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);
@@ -14142,21 +14161,21 @@ PPC_FUNC(sub_821B9DA8) {
 PPC_FUNC(sub_82258100) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_82258100 (Internet cafe) ENTER #{}", s_count);
-    sub_82258100(ctx, base);
+    __imp__sub_82258100(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_82258100 (Internet cafe) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_821A03A0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_821A03A0 (Phone system) ENTER #{}", s_count);
-    sub_821A03A0(ctx, base);
+    __imp__sub_821A03A0(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_821A03A0 (Phone system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
 PPC_FUNC(sub_8232A2C0) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[63-SUBSYS] sub_8232A2C0 (Dating system) ENTER #{}", s_count);
-    sub_8232A2C0(ctx, base);
+    __imp__sub_8232A2C0(ctx, base);
     LOGF_WARNING("[63-SUBSYS] sub_8232A2C0 (Dating system) EXIT #{} r3=0x{:08X}", s_count, ctx.r3.u32);
 }
 
@@ -14169,7 +14188,7 @@ PPC_FUNC(sub_82125478) {
     printf("[REIMPL] sub_82125478 #%d ENTER - Final setup (now non-blocking)\n", s_count);
     fflush(stdout);
 
-    sub_82125478(ctx, base);
+    __imp__sub_82125478(ctx, base);
 
     printf("[REIMPL] sub_82125478 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);

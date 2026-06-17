@@ -1515,3 +1515,78 @@ Next stage entry condition:
 
 - Resume at `sub_828536B0`, still in Windows startup/render-resource bring-up.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 53: Deep Init and 63-SUBSYS Wrapper Batch
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up through larger confirmed wrapper clusters and stop treating a single wrapper as a stage.
+- Keep using backup/reference ReXGlue `__imp__*` implementations for logging-only wrappers.
+- Do not claim playability; this remains startup/resource/runtime bring-up.
+
+Completed in this batch:
+
+- `sub_82126498`, `sub_828536B0`, `sub_8260E3B8`, `sub_8260E3D8`, `sub_8286A748`, and `sub_8286A890`: `sub_8249D6F0` deep-instrumentation wrappers now call generated `__imp__*` implementations.
+- `sub_8212FB78`, `sub_8219ADF0`, `sub_8212F578`, `sub_8212EDC8`, `sub_82138710`, `sub_821B2ED8`, `sub_822467B8`, `sub_82208460`, `sub_821B9DA8`, `sub_82258100`, `sub_821A03A0`, `sub_8232A2C0`, and `sub_82125478`: 63-SUBSYS/friend/online/camera/TV/phone/dating/final setup wrappers now call generated `__imp__*` implementations.
+
+Fresh verification:
+
+- Static GREEN checks reported:
+  `GREEN_PASS_8249D6F0_INTERNAL_WRAPPERS_CALL_IMP`
+  and `GREEN_PASS_63_SUBSYS_WRAPPERS_CALL_IMP`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known 5 `imports.cpp`/`vfs.h` warnings.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-short-8062d18c-129f-454b-b518-3e2ecd87eddf.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-short-6aeac361-7ae9-4ba4-bf01-9a094630dc81.log`
+- Smoke result:
+  timed out at the 15-second bound and was killed intentionally. It moved past the previous `sub_828536B0` and `sub_8212FB78` repeated-frame blockers.
+- New runtime surface:
+  smoke now reaches deeper DCL scans, `platform:/introSpline.csv`, `platform:/introLoc.csv`, `platform:/stockshake.txt`, `platform:/trainCamNodes.txt`, Stats system exit, and then a semaphore/sync-table hot loop.
+- Current stdout note:
+  `sub_827DAD60` logs repeated `[SEM_SIGNAL] ... SYNC_TABLE handle=0xA84E73F0 release=2198819880`, reaching over 12,000 iterations before the 15-second kill.
+- Current stderr note:
+  the in-range missing indirect calls around `829F6F60` still appear before xstart, and repeated `00000000` missing indirect calls remain later.
+- Latest repeated VEH frames:
+  `rva=0x79D81` and `rva=0x79D4B`.
+- Map result:
+  `rva=0x79D81` maps to `sub_827DAD60 + 0x91`, and `rva=0x79D4B` maps to `sub_827DAD60 + 0x5B` in `imports.cpp.obj`.
+- Supporting stack frames:
+  `rva=0x737A` maps to `printf` in `main.cpp.obj`, and `rva=0x3B43DD6` maps to UCRT `__stdio_common_vfprintf`, consistent with logging pressure inside the semaphore path.
+- Temporary smoke files `portable.txt`, `game/default.xex`, and empty `game` directory were removed from the Windows build output after testing.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Inspect `sub_827DAD60` before editing.
+   Completion standard: identify whether the hot loop is caused by logging volume, missing semaphore state transition, wrong handle lookup, or a guest sync wait/signal mismatch.
+2. Compare `sub_827DAD60` against backup/reference runtime behavior.
+   Completion standard: determine whether this path should throttle logging, update sync-table state differently, or route to a generated implementation.
+3. Correlate `sub_827DAD60` with the missing indirect-call stream.
+   Completion standard: determine whether `00000000` indirect calls are causing the sync storm or are separate guest-thread diagnostics.
+4. Rebuild and run bounded smoke after the next minimal fix.
+   Completion standard: Windows build succeeds and smoke either moves past the `sub_827DAD60` hot loop or produces a clearly different bounded blocker.
+5. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at `sub_827DAD60` semaphore/sync-table hot loop, still in Windows startup/resource bring-up.
+- Switch remains frozen unless a scoped Switch regression check is explicitly needed.
