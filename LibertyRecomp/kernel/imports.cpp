@@ -10596,11 +10596,12 @@ PPC_FUNC(sub_8296C060) {
     __imp__sub_8296C060(ctx, base);
 }
 
+extern "C" void __imp__sub_82671E40(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82671E40) {
     static int s_count = 0; ++s_count;
     if (s_count <= 20 || s_count % 100 == 0)
         LOGF_WARNING("[INIT] sub_82671E40 ENTER #{}", s_count);
-    sub_82671E40(ctx, base);
+    __imp__sub_82671E40(ctx, base);
     if (s_count <= 20 || s_count % 100 == 0)
         LOGF_WARNING("[INIT] sub_82671E40 EXIT #{}", s_count);
 }
