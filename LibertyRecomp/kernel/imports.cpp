@@ -7895,6 +7895,7 @@ extern "C" void __imp__sub_829735C8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82974F90(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_82974F90(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82670660(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82670660(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82976570(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8297AD60(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8297B260(PPCContext& ctx, uint8_t* base);
@@ -7979,7 +7980,7 @@ PPC_FUNC(sub_82974F90) {
 PPC_FUNC(sub_82670660) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[INIT] sub_82670660 ENTER #{}", s_count);
-    sub_82670660(ctx, base);
+    __imp__sub_82670660(ctx, base);
     LOGF_WARNING("[INIT] sub_82670660 EXIT #{}", s_count);
 }
 
