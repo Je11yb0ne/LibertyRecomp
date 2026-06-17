@@ -602,6 +602,20 @@ First guest-memory-enabled attempt result: with the full scanned image/function-
 - Fresh smoke result: process exit code was `0x00000000`, but the VEH log still records `0xC00000FD` stack overflow. The run reached MMIO bridge writes, graphics backend attempts, guest thread startup, multiple `sub_829A7960` traces, VBlank tick `#1`, and `Guest code returned` before the stack overflow trace. Latest repeated frame is RVA `0x7F7CD`; subtract the PE/map `0x1000` delta to map offset `0x7E7CD`, which falls in `imports.cpp.obj` `sub_824C1338 + 0x1FD`.
 - Next Windows boundary: inspect `sub_824C1338`; confirm whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing.
 
+2026-06-17 Windows wrapper continuation 37:
+
+- Confirmed `sub_824C1338 + 0x1FD` was another wrapper-recursion frame. The project-side wrapper called `sub_824C1338(ctx, base)` while ReXGlue generated `PPC_FUNC_IMPL(__imp__sub_824C1338)` exists in `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.24.cpp`.
+- Added a narrow static regression check before editing; it failed while the wrapper called the public alias and passed after the fix.
+- Minimal fix: preserved the public `extern "C" void sub_824C1338(...)` declaration, added `extern "C" void __imp__sub_824C1338(...)`, and changed only the logging wrapper body to call `__imp__sub_824C1338(ctx, base)`.
+- Fresh Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Fresh Windows build result: success. Warnings remain the existing `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the `ctx.lr` printf format warning.
+- Fresh Windows smoke logs:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-9d245045-3876-49ab-a46a-07584f5390d4.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-435764c7-30be-4587-a903-8cbc2b911c3e.log`
+- Fresh smoke result: process exit code was `0x00000000`, but the VEH log still records `0xC00000FD` stack overflow. The run reached MMIO bridge writes, graphics backend attempts, guest thread startup, multiple `sub_829A7960` traces, VBlank tick `#1`, and `Guest code returned` before the stack overflow trace. Latest repeated frame is RVA `0x66422`; subtract the PE/map `0x1000` delta to map offset `0x65422`, which falls in `imports.cpp.obj` `sub_821DE390 + 0x1F2`.
+- Next Windows boundary: inspect `sub_821DE390`; likely another project-side logging wrapper, but confirm generated `__imp__sub_821DE390` and the exact call pattern before editing.
+
 ## Explicit Non-Goals
 
 - Do not claim or imply the Switch build is playable.
@@ -638,7 +652,7 @@ Do not touch unless a later stage explicitly scopes it:
 
 ## Next Small Tasks
 
-1. Inspect the Windows stack overflow now landing in `sub_824C1338 + 0x1FD`.
+1. Inspect the Windows stack overflow now landing in `sub_821DE390 + 0x1F2`.
    Completion standard: determine whether it is direct wrapper recursion, an internal recursive branch, or a different call-path problem before editing; use IDA MCP if source/generated/map evidence is insufficient.
 
 2. Keep the ReXGlue MMIO/VBlank bootstrap evidence current.

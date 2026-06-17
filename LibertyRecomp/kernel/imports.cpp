@@ -11045,12 +11045,13 @@ PPC_FUNC(sub_829B0178) {
 
 
 extern "C" void sub_824C1338(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_824C1338(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_824C1338) {
     static int s_count = 0; ++s_count;
     if (s_count <= 10) {
         LOGF_WARNING("[INIT] sub_824C1338 ENTER #{}", s_count);
     }
-    sub_824C1338(ctx, base);
+    __imp__sub_824C1338(ctx, base);
     if (s_count <= 10) {
         LOGF_WARNING("[INIT] sub_824C1338 EXIT #{} r3={}", s_count, ctx.r3.u32);
     }
