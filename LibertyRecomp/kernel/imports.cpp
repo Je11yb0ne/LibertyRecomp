@@ -11731,18 +11731,20 @@ PPC_FUNC(sub_8226CB50) {
 }
 
 // Internal functions called by sub_821A8868 - declarations only
-// REMOVED: extern "C" void sub_82300C78(PPCContext& ctx, uint8_t* base); // v1 addr
+// sub_82300C78 is wrapped below and delegates to current generated __imp__ code.
 
-// Hook sub_82300C78 - Call original to trace blocking point
+// Hook sub_82300C78 - call the current generated implementation with tracing.
+extern "C" void __imp__sub_82300C78(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82300C78) {
-    static int s_count = 0; ++s_count;
-    printf("[sub_82300C78] #%d ENTER r3=0x%08X - calling original with tracing\n", s_count, ctx.r3.u32); fflush(stdout);
+    static int s_count = 0;
+    ++s_count;
+    printf("[sub_82300C78] #%d ENTER r3=0x%08X - calling generated implementation\n", s_count, ctx.r3.u32);
+    fflush(stdout);
 
-    // Call the original implementation - it will block at sub_827DB988
-    // We need to trace into sub_827DB988 to find the actual semaphore
-    /* sub_82300C78(ctx, base); // REMOVED: v1 addr not in v8 generated code */
+    __imp__sub_82300C78(ctx, base);
 
-    printf("[sub_82300C78] #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32); fflush(stdout);
+    printf("[sub_82300C78] #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
+    fflush(stdout);
 }
 extern "C" void sub_8218BE28(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_824E1DD0(PPCContext& ctx, uint8_t* base);
@@ -11751,7 +11753,7 @@ extern "C" void sub_821A8060(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A8868(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_821A8278(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_821A8278(PPCContext& ctx, uint8_t* base);
-// REMOVED: extern "C" void sub_824E14B8(PPCContext& ctx, uint8_t* base);  // Init function called by sub_82300C78 // v1 addr
+extern "C" void sub_824E14B8(PPCContext& ctx, uint8_t* base);  // Init function called by generated sub_82300C78
 
 // =============================================================================
 // SYNC PRIMITIVE HOOKS - Make blocking sync functions non-blocking
@@ -11987,129 +11989,22 @@ PPC_FUNC(sub_827DB988) {
 // =============================================================================
 
 // REIMPLEMENTED: sub_821A8868 (HUD/Mission init)
-// The original calls sub_82300C78 -> sub_827DB988 -> sub_827DB338 -> sub_829A39A0 -> sub_829A3560
-// sub_829A3560 does XamTaskSchedule then waits on event at 0x82A97F5C
-// Since we execute XamTaskSchedule synchronously, we pre-signal the event so the wait succeeds
-extern "C" void sub_821A8868(PPCContext& ctx, uint8_t* base);
-
+// This wrapper now delegates to the generated ReXGlue implementation. The old
+// hand-expanded version used stale vtable data and produced a bad 0x01000000
+// indirect call in sub_821A8278.
+extern "C" void __imp__sub_821A8868(PPCContext& ctx, uint8_t* base);
 
 PPC_FUNC(sub_821A8868) {
-    static int s_count = 0; ++s_count;
-    printf("[REIMPL] sub_821A8868 #%d ENTER - HUD init (expanded reimplementation)\n", s_count);
+    static int s_count = 0;
+    ++s_count;
+    printf("[REIMPL] sub_821A8868 #%d ENTER - HUD init\n", s_count);
     fflush(stdout);
 
-    // EXPANDED HOLISTIC REIMPLEMENTATION of sub_821A8868
-    // This now includes the full functionality of sub_82300C78 (non-blocking version)
-    //
-    // Original sub_821A8868 call tree:
-    // 1. sub_82300C78 - string/resource init (has blocking sync) - REIMPLEMENTED INLINE
-    // 2. sub_8218BE28 - allocation (non-blocking)
-    // 3. sub_824E1DD0 - allocation wrapper (non-blocking)
-    // 4. sub_8249BA90 - allocation (non-blocking)
-    // 5. sub_821A8060 - file/stream setup (non-blocking)
+    __imp__sub_821A8868(ctx, base);
 
-    // =========================================================================
-    // REIMPLEMENTATION OF sub_82300C78 (non-blocking version)
-    // This initializes the critical global at 0x82CFA2E4 that sub_821A8278 needs
-    // =========================================================================
-
-    uint32_t inputArg = ctx.r3.u32;  // Capture input before modifying r3
-
-    // Step 1: Store input to 0x82CFA2E0
-    constexpr uint32_t kInputGlobal = 0x82CFA2E0;
-    uint32_t* inputGlobalPtr = reinterpret_cast<uint32_t*>(g_memory.Translate(kInputGlobal));
-    if (inputGlobalPtr) {
-        *inputGlobalPtr = ByteSwap(inputArg);
-    }
-
-    // Step 2: Clear flag bytes at 0x82D04248 and 0x82D04249
-    uint8_t* flag1 = static_cast<uint8_t*>(g_memory.Translate(0x82D04248));
-    uint8_t* flag2 = static_cast<uint8_t*>(g_memory.Translate(0x82D04249));
-    if (flag1) *flag1 = 0;
-    if (flag2) *flag2 = 0;
-
-    // Step 3: Call sub_824E14B8 (non-blocking init)
-    /* sub_824E14B8(ctx, base); // REMOVED: v1 addr not in v8 generated code */
-
-    // Step 4: Allocate 12616 bytes (the size sub_82300C78 allocates)
-    ctx.r3.u32 = 12616;
-    sub_8218BE28(ctx, base);
-    uint32_t objPtr = ctx.r3.u32;
-
-    printf("[REIMPL] sub_821A8868 #%d Allocated HUD object: 0x%08X (12616 bytes)\n", s_count, objPtr);
-
-    if (objPtr != 0) {
-        // Step 5: Store vtable pointer 0x82010F0C to [obj+0]
-        constexpr uint32_t kVtableAddr = 0x82010F0C;
-        PPC_STORE_U32(objPtr + 0, kVtableAddr);
-
-        // Step 6: Init loop - zero 7 entries at stride 1568 starting at offset 48
-        for (int i = 0; i < 7; i++) {
-            uint32_t offset = 48 + (i * 1568);
-            PPC_STORE_U16(objPtr + offset, 0);
-            PPC_STORE_U16(objPtr + offset + 2, 0);
-        }
-
-        // Step 7: Zero trailing fields at +12596, +12600, +12604
-        PPC_STORE_U32(objPtr + 12596, 0);
-        PPC_STORE_U32(objPtr + 12600, 0);
-        PPC_STORE_U32(objPtr + 12604, 0);
-    }
-
-    // Step 8: Store object pointer to 0x82CFA2E4 (THE CRITICAL GLOBAL!)
-    constexpr uint32_t kHudObjectGlobal = 0x82CFA2E4;
-    uint32_t* hudGlobalPtr = reinterpret_cast<uint32_t*>(g_memory.Translate(kHudObjectGlobal));
-    if (hudGlobalPtr) {
-        *hudGlobalPtr = ByteSwap(objPtr);
-        printf("[REIMPL] sub_821A8868 #%d Initialized critical global 0x%08X = 0x%08X\n",
-               s_count, kHudObjectGlobal, objPtr);
-    }
-
-    // Step 9: Call vtable[1] (offset 4) on the object
-    if (objPtr != 0) {
-        uint32_t vtable = PPC_LOAD_U32(objPtr + 0);
-        uint32_t vtableFunc = PPC_LOAD_U32(vtable + 4);
-        if (vtableFunc != 0) {
-            printf("[REIMPL] sub_821A8868 #%d Calling vtable[1] at 0x%08X\n", s_count, vtableFunc);
-            ctx.r3.u32 = objPtr;
-            PPC_CALL_INDIRECT_FUNC(vtableFunc);
-        }
-    }
-
-    // Step 10: Set ready flag at 0x82D0424A
-    uint8_t* readyFlag = static_cast<uint8_t*>(g_memory.Translate(0x82D0424A));
-    if (readyFlag) *readyFlag = 1;
-
-    // Step 11: SKIP sub_827DB988 and sub_827DB2A8 (blocking sync functions)
-    // These are the sync primitives that would block - we bypass them entirely
-
-    // =========================================================================
-    // END OF sub_82300C78 REIMPLEMENTATION
-    // =========================================================================
-
-    // Also initialize the original global at 0x82AD6958 for sub_821A8868's own use
-    constexpr uint32_t kHudInitGlobal = 0x82AD6958;
-    uint32_t* hudInitPtr = reinterpret_cast<uint32_t*>(g_memory.Translate(kHudInitGlobal));
-    if (hudInitPtr && objPtr != 0) {
-        *hudInitPtr = ByteSwap(objPtr);
-    }
-
-    // Continue with remaining non-blocking calls from original sub_821A8868
-    // 2. Call sub_824E1DD0 (non-blocking allocation wrapper)
-    sub_824E1DD0(ctx, base);
-
-    // 3. Call sub_8249BA90 (non-blocking allocation)
-    sub_8249BA90(ctx, base);
-
-    // 4. Call sub_821A8060 (non-blocking file/stream setup)
-    sub_821A8060(ctx, base);
-
-    printf("[REIMPL] sub_821A8868 #%d EXIT - HUD init complete\n", s_count);
+    printf("[REIMPL] sub_821A8868 #%d EXIT r3=0x%08X\n", s_count, ctx.r3.u32);
     fflush(stdout);
-
-    ctx.r3.u32 = 1;  // Return success
 }
-
 
 // REIMPLEMENTED: sub_821A8278 (HUD component)
 PPC_FUNC(sub_821A8278) {
