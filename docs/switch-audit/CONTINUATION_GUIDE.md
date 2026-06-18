@@ -2473,3 +2473,81 @@ Next stage entry condition:
 
 - Resume at newer `MISSING-FUNC` mapping, starting with `lr=82753D70` or `lr=824315D4`.
 - Keep the assert callback diagnostics in place for now; remove or lower them only after the next runtime blocker no longer needs this evidence.
+
+## 2026-06-18 Windows Continuation 66: Missing-Function VTable Slot Snapshot
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated code and runtime behavior as the primary reference.
+- Keep the Switch side frozen at the verified LibertyRecompExeFs / NSP-like pre-guest baseline unless a scoped regression check is explicitly required.
+- Do not treat every `MISSING-FUNC` as a missing wrapper. First prove whether the indirect target is a generated function pointer, a nullable callback, or guest data/vtable state.
+
+Completed in this batch:
+
+- Extended the existing `PPC_CALL_INDIRECT_FUNC` diagnostic in `glue/rexglue-sdk-main/include/rex/ppc/context.h`.
+- The missing-indirect log now snapshots:
+  - `r3_vtbl = *(uint32_t*)r3` when readable,
+  - `r3_vtbl` slots at offsets `0`, `4`, `8`, `16`, and `32`,
+  - `r11` slots at offsets `0`, `4`, and `8`.
+- The diagnostic is bounded to the existing first `256` missing-indirect log entries and does not change dispatch behavior or guest register state.
+- Fresh smoke shows all `11` current `MISSING-FUNC` entries are zero guest vtable/service slots rather than isolated missing host wrappers:
+  - `lr=82300D28`, `r3=0060A960`, `r3_vtbl=82010F0C`, sampled slots all zero.
+  - `lr=827DB388/827DB3B0/827DB3D0/827DB3F4`, `r3=82A80A24`, `r3_vtbl=8200B62C`, sampled slots all zero.
+  - `lr=82121160`, `r3=0060A960`, `r3_vtbl=82010F0C`, sampled slots all zero.
+  - `lr=82753D70`, `r3=02063420`, `r3_vtbl=8201AA50`, sampled slots all zero.
+  - `lr=824315D4`, `r3=0259D520`, `r3_vtbl=82018F6C`, sampled slots all zero.
+  - `lr=82196C50/82196C98/82196CB4`, `r3=03079DA0`, `r3_vtbl=82001488`, sampled slots all zero.
+- Source mapping before this note:
+  - `82753D70` is inside generated `__imp__sub_82753D30`, which loads an object vtable and calls slot `+4`.
+  - `824315D4` follows an allocation/constructor path where generated `__imp__sub_823F46C0` stores vtable `0x82018F6C`, then the caller dispatches slot `+4`.
+  - `82196C50/82196C98/82196CB4` are inside generated `gta4_recomp.3.cpp` object setup using vtable `0x82001488`, followed by slot calls.
+- Current interpretation: the active `MISSING-FUNC` cluster is most likely a vtable/data restoration or image data initialization boundary, not a batch of unrelated wrapper-recursion bugs.
+- ReXGlue codegen documentation says the VTable scanner discovers slots from RTTI COL structures and registers slot addresses as `VTABLE` authority functions. The runtime evidence here is different: the object points at plausible image vtable addresses, but the sampled slots in guest memory are zero at runtime.
+- No generated code was edited.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- glue/rexglue-sdk-main/include/rex/ppc/context.h` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  initial header-change rebuild exceeded the command timeout while Ninja kept running; after the background build finished, a follow-up Ninja run returned `ninja: no work to do` with exit code `0`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-missing-vtbl-fresh-8af8b2ab-b7e6-4f0d-9ec9-d88e05bba2d0.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-missing-vtbl-fresh-8af8b2ab-b7e6-4f0d-9ec9-d88e05bba2d0.log`
+- Smoke result:
+  killed intentionally at the bounded smoke timeout. Counts: `MISSING_FUNC_COUNT=11`, `MISSING_FUNC_VTBL_FIELD_COUNT=11`, `ASSERTCB_TOTAL=0`, `TRAP_CONTEXT_COUNT=0`, `CONTENT_LAYOUT_MISSING_COUNT=1`, `VEH_COUNT=0`, `ACCESS_VIOLATION_COUNT=0`, `UNHANDLED_EXCEPTION_COUNT=0`, `C0000005_COUNT=0`, `C00000FD_COUNT=0`.
+- Temporary `portable.txt` and the temporary executable-root `game` junction were removed after the smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `glue/rexglue-sdk-main/include/rex/ppc/context.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `docs/dev/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Inspect ReXGlue codegen/runtime vtable restoration and image-data initialization.
+   Completion standard: identify where vtable words at `0x82010F0C`, `0x8200B62C`, `0x8201AA50`, `0x82018F6C`, and `0x82001488` should be populated in the current Windows runtime.
+2. Compare current generated output and ReXGlue wiki behavior.
+   Completion standard: decide whether the current generated data omits these slot words, whether the image blob is not being copied into guest memory, or whether these zero slots are intentional nullable/pure-virtual slots.
+3. Use IDA MCP or batch IDA only if generated/source evidence cannot prove the original XEX data words.
+   Completion standard: if used, verify the original XEX or loaded image bytes for at least one vtable address and record the exact source of truth.
+4. Keep wrapper changes ReXGlue-first.
+   Completion standard: if a wrapper turns out to own a missing object construction side effect, confirm public wrapper ownership and `__imp__` call-through before editing.
+5. Rebuild, bounded smoke, update this guide, stage scoped files only, commit, push, and continue.
+   Completion standard: fresh build succeeds, smoke has no precise exception keywords, and the next runtime blocker is classified with source/register evidence.
+
+Next stage entry condition:
+
+- Resume at ReXGlue vtable/data restoration investigation, not at generic `MISSING-FUNC` counting.
+- The next decision is whether the zero vtable slots are expected guest null slots, missing generated vtable entries, or missing image/data materialization in the legacy Windows bootstrap.

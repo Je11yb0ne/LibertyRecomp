@@ -138,13 +138,41 @@ inline std::atomic<uint32_t> g_ppc_missing_indirect_log_count{0};
       uint32_t _icf_log = g_ppc_missing_indirect_log_count.fetch_add(                    \
           1, std::memory_order_relaxed);                                                 \
       if (_icf_log < 256) {                                                              \
+        auto _icf_can_read_u32 = [](uint32_t _addr) -> bool {                            \
+          return uint64_t(_addr) + sizeof(uint32_t) <= PPC_MEMORY_SIZE;                  \
+        };                                                                                \
+        uint32_t _icf_r3_vtbl = 0;                                                       \
+        uint32_t _icf_r3_vtbl_0 = 0;                                                     \
+        uint32_t _icf_r3_vtbl_4 = 0;                                                     \
+        uint32_t _icf_r3_vtbl_8 = 0;                                                     \
+        uint32_t _icf_r3_vtbl_10 = 0;                                                    \
+        uint32_t _icf_r3_vtbl_20 = 0;                                                    \
+        uint32_t _icf_r11_vtbl_0 = 0;                                                    \
+        uint32_t _icf_r11_vtbl_4 = 0;                                                    \
+        uint32_t _icf_r11_vtbl_8 = 0;                                                    \
+        if (_icf_can_read_u32(ctx.r3.u32)) {                                             \
+          _icf_r3_vtbl = PPC_LOAD_U32(ctx.r3.u32);                                      \
+          if (_icf_can_read_u32(_icf_r3_vtbl + 0)) _icf_r3_vtbl_0 = PPC_LOAD_U32(_icf_r3_vtbl + 0);   \
+          if (_icf_can_read_u32(_icf_r3_vtbl + 4)) _icf_r3_vtbl_4 = PPC_LOAD_U32(_icf_r3_vtbl + 4);   \
+          if (_icf_can_read_u32(_icf_r3_vtbl + 8)) _icf_r3_vtbl_8 = PPC_LOAD_U32(_icf_r3_vtbl + 8);   \
+          if (_icf_can_read_u32(_icf_r3_vtbl + 16)) _icf_r3_vtbl_10 = PPC_LOAD_U32(_icf_r3_vtbl + 16); \
+          if (_icf_can_read_u32(_icf_r3_vtbl + 32)) _icf_r3_vtbl_20 = PPC_LOAD_U32(_icf_r3_vtbl + 32); \
+        }                                                                                 \
+        if (_icf_can_read_u32(ctx.r11.u32 + 0)) _icf_r11_vtbl_0 = PPC_LOAD_U32(ctx.r11.u32 + 0); \
+        if (_icf_can_read_u32(ctx.r11.u32 + 4)) _icf_r11_vtbl_4 = PPC_LOAD_U32(ctx.r11.u32 + 4); \
+        if (_icf_can_read_u32(ctx.r11.u32 + 8)) _icf_r11_vtbl_8 = PPC_LOAD_U32(ctx.r11.u32 + 8); \
         fprintf(stderr,                                                                  \
                 "[MISSING-FUNC] #%u indirect call to %08X (in_range=%d) "               \
                 "lr=%08llX ctr=%08X r1=%08X r3=%08X r4=%08X r5=%08X "                  \
-                "r10=%08X r11=%08X r12=%08X\n",                                        \
+                "r10=%08X r11=%08X r12=%08X "                                          \
+                "r3_vtbl=%08X r3_vtbl[0,4,8,10,20]=%08X,%08X,%08X,%08X,%08X "          \
+                "r11[0,4,8]=%08X,%08X,%08X\n",                                         \
                 _icf_log + 1, _icf_addr, (int)_icf_in_range,                             \
                 (unsigned long long)ctx.lr, ctx.ctr.u32, ctx.r1.u32, ctx.r3.u32,         \
-                ctx.r4.u32, ctx.r5.u32, ctx.r10.u32, ctx.r11.u32, ctx.r12.u32);          \
+                ctx.r4.u32, ctx.r5.u32, ctx.r10.u32, ctx.r11.u32, ctx.r12.u32,           \
+                _icf_r3_vtbl, _icf_r3_vtbl_0, _icf_r3_vtbl_4, _icf_r3_vtbl_8,             \
+                _icf_r3_vtbl_10, _icf_r3_vtbl_20, _icf_r11_vtbl_0,                       \
+                _icf_r11_vtbl_4, _icf_r11_vtbl_8);                                      \
         fflush(stderr);                                                                  \
       }                                                                                  \
     }                                                                                    \
