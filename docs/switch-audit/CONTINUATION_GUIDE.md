@@ -3046,3 +3046,102 @@ Next stage entry condition:
 
 - Start by choosing the VFS platform-prefix correction unless an AES key/content extraction path becomes available first.
 - Keep runtime RPF extraction out of the app until the encrypted archive path is proven outside the runtime.
+
+## 2026-06-19 Windows/Switch Continuation 73: VFS Platform Prefix Correction
+
+Current mainline goal:
+
+- Keep Windows runtime bring-up moving through content/resource blockers without broad architecture churn.
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline, using Switch only for regression checks or narrowly scoped shared-code blockers.
+- Do not enter guest/gameplay code and do not claim Switch playability.
+
+Completed in this batch:
+
+- Fixed active `VFS::Resolve()` path-mapping semantics in `LibertyRecomp/kernel/vfs.cpp`.
+  - Replaced substring matching on normalized paths with prefix-only matching.
+  - Preserved matching against both the normalized full path and the stripped path.
+  - Builds the mapped remainder from the matched candidate instead of always using the stripped path.
+  - Moved `platform:` / `platform:/` mappings before generic `data/` and `text/` mappings so `platform:/data/...` stays under `xbox360/...` instead of being captured by `common/data/...`.
+  - Removed stale platform-root comments from the subdirectory mapping section.
+- Fixed a shared Switch/GCC compile blocker in `LibertyRecomp/kernel/imports.cpp`.
+  - `sub_829A7DC8` had `goto done` paths before `table2Begin` / `table2End` local `const` declarations.
+  - devkitA64 GCC rejected the function because the jump crossed initialization.
+  - The declarations were moved before the earlier `goto done` sites; runtime flow and values are unchanged.
+- Confirmed the VFS behavior shift in Windows smoke:
+  - `platform:/data/TIMECYC.DAT`, `platform:/moon.dds`, `platform:/rain.dds`, and `platform:/rainanim.dds` now resolve as explicit `NOT FOUND via VFS` loose-content misses.
+  - `VFS RESOLVED NON-FILE` dropped from `3` to `0`.
+  - The next blocker remains content availability / RPF extraction, not a directory false-positive or FileStream ABI crash.
+
+ReXGlue refs status:
+
+- New local refs were discovered but not fully audited in this batch:
+  - `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\TheOutFit`
+  - `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\bo2-recompiled`
+  - `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\skate3recomp`
+  - `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\TDURE`
+- `skate3recomp` received only a first-pass read:
+  - README confirms a complete ReXGlue project shape with installer flow, generated-source phase, title-update staging, Vulkan desktop dependency, and a Skate-specific ReXGlue SDK fork.
+  - CMake uses generated manifests, `generate-all`, `rex::runtime`, and `rexglue_configure_target(skate3)`.
+  - Source structure shows a ReXApp-style application layer, ISO installer, title-update installer, user settings, and targeted guest-side override helpers.
+- Do not treat the refs review as complete. The next research stage must read `skate3recomp` more deeply first, then compare TheOutFit, bo2-recompiled, and TDURE before adopting patterns.
+
+Fresh verification:
+
+- Static VFS policy check:
+  `PASS: VFS platform prefix policy present`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/vfs.cpp LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecomp`
+- Windows build result:
+  succeeded. Existing warnings remained: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, existing `ctx.lr` printf format warning, and existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- Windows bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-vfs-platform-postswitch-3862b210-11d1-479f-98e1-63a09048c930.log`
+- Windows bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-vfs-platform-postswitch-3862b210-11d1-479f-98e1-63a09048c930.log`
+- Windows smoke result:
+  killed intentionally at the 45 second bounded smoke timeout.
+  Counts: `MISSING-FUNC=0`, `MISSING_FUNC=0`, `Access violation=0`, `C0000005=0`, `C00000FD=0`, `Unhandled exception=0`, `Exception 0x=0`, `VFS FOUND=0`, `FileStream=0`, `VFS RESOLVED NON-FILE=0`, `NOT FOUND via VFS=128`, `sub_827E8180=350`, `assertcb=33`, `tw/td trap hit=99`.
+  The run reached `[Main] Video device created`, `sub_8218BE28 #2500`, and `sub_82125478 #1 EXIT`.
+- Switch build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-switch-audit-debug -j 2 LibertyRecompExeFs`
+- Switch build result:
+  succeeded after the `sub_829A7DC8` GCC-safe declaration move.
+- Latest default Switch ExeFS Build ID:
+  `e5b897b226d906d0e7c4211e8a51100f3f92ecf7`
+- Switch `readelf -dW`:
+  dynamic flags were `NOW PIE`; no `TEXTREL` was reported.
+- Ryujinx smoke log:
+  `D:\Games\Ryujinx\Ryujinx\portable\Logs\Ryujinx_Canary_1.3.269_2026-06-19_01-55-26.log`
+- Ryujinx smoke result:
+  reached Switch pre-main memory-disabled breadcrumb, `main entered`, skipped RomFS in ExeFS/NSO mode, appended SD log, and stopped at missing `sdmc:/switch/LibertyRecomp/game/default.xex` as expected. This is still not gameplay.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/vfs.cpp`,
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this VFS platform-prefix / Switch GCC-safe stage.
+   Completion standard: only the two runtime files plus this guide are staged, commit message states the audited boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Pause implementation and complete the refs review before the next runtime change.
+   Completion standard: read `skate3recomp` application, installer, CMake/codegen, manifests, overrides, and ReXGlue SDK integration deeply enough to list adoptable patterns and non-applicable patterns.
+3. Compare the remaining ReXGlue refs.
+   Completion standard: inspect TheOutFit, bo2-recompiled, and TDURE for codegen manifests, generated-source handling, runtime app shape, VFS/content install flow, and import/override patterns.
+4. Decide the next runtime boundary after refs review.
+   Completion standard: choose either a ReXGlue/ReXApp alignment task, a content-prep/RPF extraction task, or another narrow Windows blocker, with evidence written in this guide before editing.
+
+Next stage entry condition:
+
+- Do not continue implementation until the important ReXGlue refs are reviewed and summarized.
+- Keep the next code edit narrow and evidence-driven.
+- Keep Switch at the default LibertyRecompExeFs / NSP-like audit package baseline unless the next boundary explicitly needs Switch regression.

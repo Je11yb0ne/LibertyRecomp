@@ -7234,6 +7234,8 @@ PPC_FUNC(sub_829A7DC8) {
     ctx.r3.s64 = 0;
     const uint32_t table1Begin = 0x82A214FC;
     const uint32_t table1End = 0x82A21508;
+    const uint32_t table2Begin = 0x82A20010;
+    const uint32_t table2End = 0x82A214F8;
     for (uint32_t slot = table1Begin, index = 0; slot < table1End; slot += 4, ++index) {
         if (ctx.r3.s32 != 0) {
             printf("[BOOT-TRACE] sub_829A7DC8 table1 stop status=0x%08X slot=0x%08X\n", ctx.r3.u32, slot);
@@ -7263,8 +7265,6 @@ PPC_FUNC(sub_829A7DC8) {
 
     LibertyRegisterForcedCtorTargets();
 
-    const uint32_t table2Begin = 0x82A20010;
-    const uint32_t table2End = 0x82A214F8;
     for (uint32_t slot = table2Begin, index = 0; slot < table2End; slot += 4, ++index) {
         uint32_t target = PPC_LOAD_U32(slot);
         const bool verboseSlot = LibertyBootTraceCtorSlotVerbose(index, target, (table2End - table2Begin) / 4);

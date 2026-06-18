@@ -239,23 +239,36 @@ namespace VFS
             return {};
         }
 
-        // Check path mappings first
+        // Check path mappings first. Use prefix matching only; substring matches
+        // can lose the drive-specific remainder (for example platform:/rain.dds).
         for (const auto& mapping : g_pathMappings)
         {
             std::string mappingNorm = NormalizePath(mapping.guestPrefix);
-            if (stripped.find(mappingNorm) == 0 || normalized.find(mappingNorm) != std::string::npos)
+            std::string remainder;
+
+            auto matchPrefix = [&](const std::string& candidate) -> bool
             {
-                // Found a mapping - replace prefix
-                std::string remainder;
-                if (stripped.length() > mappingNorm.length())
+                if (candidate.rfind(mappingNorm, 0) != 0)
                 {
-                    remainder = stripped.substr(mappingNorm.length());
+                    return false;
+                }
+
+                remainder.clear();
+                if (candidate.length() > mappingNorm.length())
+                {
+                    remainder = candidate.substr(mappingNorm.length());
                     if (!remainder.empty() && remainder.front() == '/')
                     {
                         remainder.erase(0, 1);
                     }
                 }
-                
+
+                return true;
+            };
+
+            if (matchPrefix(normalized) || matchPrefix(stripped))
+            {
+                // Found a mapping - replace prefix
                 std::filesystem::path resolved = g_extractedRoot / mapping.hostPrefix;
                 if (!remainder.empty())
                 {
@@ -420,6 +433,11 @@ namespace VFS
         g_pathMappings.push_back({"audio.rpf", "audio"});
         g_pathMappings.push_back({"audio.rpf", "xbox360/audio"});
 
+        // Platform-specific paths must precede generic data/text mappings so
+        // platform:/data stays under xbox360 instead of common/data.
+        g_pathMappings.push_back({"platform:", "xbox360"});
+        g_pathMappings.push_back({"platform:/", "xbox360/"});
+
         // Common paths
         g_pathMappings.push_back({"common/", "common/"});
         g_pathMappings.push_back({"data/", "common/data/"});
@@ -431,12 +449,6 @@ namespace VFS
         g_pathMappings.push_back({"audio/", "xbox360/audio/"});
         g_pathMappings.push_back({"sfx/", "audio/sfx/"});
         g_pathMappings.push_back({"sfx/", "xbox360/audio/sfx/"});
-        
-        // Platform-specific paths (platform: → xbox360/)
-        // GTA IV uses "platform:/textures/fonts" etc. for Xbox 360 platform assets
-        // Root platform: prefix mappings (must come before subdirectory mappings)
-        g_pathMappings.push_back({"platform:", "xbox360"});
-        g_pathMappings.push_back({"platform:/", "xbox360/"});
         
         // Subdirectory mappings (more specific paths)
         g_pathMappings.push_back({"textures", "xbox360/textures"});
