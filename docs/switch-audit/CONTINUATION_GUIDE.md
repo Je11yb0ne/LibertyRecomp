@@ -3558,3 +3558,80 @@ Next stage entry condition:
 - Do not call `LaunchModule()` in the next stage.
 - Do not treat the temporary import bridge as a real runtime implementation.
 - Keep Switch paused and leave generated sources plus thirdparty submodules untouched.
+
+## 2026-06-19 Windows Continuation 79: ReXGlue LoadXexImage Side-Effect Audit
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Decide the next Windows sidecar module boundary before crossing into ReXGlue guest-memory side effects.
+- Do not call `LoadXexImage()` until its side effects are classified.
+
+Completed in this batch:
+
+- Read the ReXGlue module-load path:
+  - `rex::Runtime::LoadXexImage()` in `glue/rexglue-sdk-main/src/system/runtime.cpp`,
+  - `rex::system::UserModule::LoadFromFile()`,
+  - `UserModule::LoadFromMemory()`,
+  - `UserModule::LoadXexContinue()` in `glue/rexglue-sdk-main/src/system/user_module.cpp`,
+  - `rex::runtime::XexModule::Load()`,
+  - `XexModule::ReadImage*()`,
+  - `XexModule::LoadContinue()` in `glue/rexglue-sdk-main/src/system/xex_module.cpp`,
+  - `KernelState::SetExecutableModule()` and `KernelState::LaunchModule()` in `glue/rexglue-sdk-main/src/system/kernel_state.cpp`.
+- Classified `LoadXexImage()` as not metadata-only:
+  - resolves the VFS path,
+  - maps or reads the whole XEX,
+  - constructs an `XexModule`,
+  - copies XEX headers,
+  - reads security info,
+  - allocates/fills guest image memory through `AllocFixed()` and `TranslateVirtual()`,
+  - decrypts/decompresses the image,
+  - validates PE headers from guest memory,
+  - parses import libraries,
+  - patches variable imports in guest memory,
+  - sets page protections,
+  - copies the XEX header to system heap,
+  - fills loader data,
+  - then `SetExecutableModule()` writes PIB/loader state and starts the kernel dispatch host thread.
+- Confirmed `LaunchModule()` is separate and creates/resumes the guest main `XThread`; it was not called in this audit.
+
+Decision:
+
+- Do not make the next stage a blind `LoadXexImage()` call.
+- The next implementation boundary should be a sidecar-only host-buffer XEX metadata preflight using ReXGlue's `xex2_info.h` structs or an equivalent safe parser.
+- The metadata preflight should log header/security/file-format/import summary data from `default.xex` and still stop before guest-memory allocation, `LoadXexImage()`, and `LaunchModule()`.
+- The temporary sidecar import bridge remains unacceptable for guest launch; it only permits generated metadata linkage.
+
+Fresh verification:
+
+- This stage is source-read / documentation only.
+- No runtime, generated, thirdparty, or Switch source files were changed.
+- Verification before commit:
+  `git -c core.whitespace=cr-at-eol diff --check -- docs/switch-audit/CONTINUATION_GUIDE.md docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `LoadXexImage()` side-effect audit decision.
+   Completion standard: only the two docs files are staged, commit message states the module-load side-effect audit boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Add host-buffer XEX metadata preflight to `LibertyRecompRex`.
+   Completion standard: TDD red/green log assertion proves the sidecar logs XEX header/security/file-format/import summary from `default.xex` without calling `LoadXexImage()`.
+3. Decide the first controlled `LoadXexImage()` experiment only after metadata matches the generated `PPCImageConfig` expectations.
+   Completion standard: guide records expected image base/size/import count and the exact stop condition before any code crosses that boundary.
+
+Next stage entry condition:
+
+- Start with sidecar-only metadata parsing from the host `default.xex` buffer.
+- Do not call `LoadXexImage()` or `LaunchModule()` in the metadata preflight stage.
+- Keep generated sources, thirdparty submodules, and Switch packaging untouched.

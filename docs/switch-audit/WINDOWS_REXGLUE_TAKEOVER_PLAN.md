@@ -153,6 +153,26 @@ Phase 3 has started with a content/XEX preflight only; it still does not call
 - Real XEX loading, module materialization, import patching, and launch remain
   future work.
 
+`LoadXexImage()` side-effect audit decision:
+
+- It is not a metadata-only call.
+- `Runtime::LoadXexImage()` creates a `UserModule`, calls
+  `UserModule::LoadFromFile()`, then calls `KernelState::SetExecutableModule()`.
+- `UserModule::LoadFromFile()` resolves the VFS path, maps or reads the full
+  XEX, then calls `LoadFromMemory()`.
+- `LoadFromMemory()` constructs an `XexModule` and calls `XexModule::Load()`.
+- `XexModule::Load()` reads headers/security info and calls `ReadImage()`;
+  `ReadImage()` resets/allocates the guest image heap, decrypts/decompresses
+  into guest memory, and validates the PE image.
+- `LoadXexContinue()` reads PE headers from guest memory, parses imports,
+  patches variable imports in guest memory, sets memory protection, copies the
+  XEX header to system heap, fills loader data, and runs `OnLoad()`.
+- `KernelState::SetExecutableModule()` writes process/loader state and starts
+  the kernel dispatch host thread.
+- Therefore the next boundary should be a sidecar-only XEX metadata preflight
+  using the host file/header buffer before deciding whether to cross into
+  `LoadXexImage()` guest-memory side effects.
+
 ### Phase 1: API And CMake Compatibility Probe
 
 Goal: prove the current repo can build a tiny ReXGlue-native Windows target
