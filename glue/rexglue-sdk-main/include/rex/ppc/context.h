@@ -532,9 +532,17 @@ inline void ppc_trap(PPCContext& ctx, uint8_t* base, uint16_t trap_type) {
       break;
     }
     case 0:
-    case 22:
-      REXCPU_WARN("tw/td trap hit (type {})", trap_type);
+    case 22: {
+      static std::atomic<uint32_t> trap_log_count{0};
+      const uint32_t count = trap_log_count.fetch_add(1, std::memory_order_relaxed) + 1;
+      if (count <= 128 || (count % 1000) == 0) {
+        REXCPU_WARN(
+            "tw/td trap hit (type {} lr={:08X} ctr={:08X} r12={:08X} r1={:08X} r3={:08X} r4={:08X} count={})",
+            trap_type, static_cast<uint32_t>(ctx.lr), ctx.ctr.u32, ctx.r12.u32, ctx.r1.u32, ctx.r3.u32,
+            ctx.r4.u32, count);
+      }
       break;
+    }
     case 25:
       break;
     default:

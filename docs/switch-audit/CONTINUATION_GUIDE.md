@@ -2315,3 +2315,87 @@ Next stage entry condition:
 
 - Resume after the verified platform texture content diagnostic. The immediate choice is content prep (`aes_key.bin` plus RPF extraction) versus moving to the repeated trap / newer `MISSING-FUNC` runtime diagnostics while content remains incomplete.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 64: ReXGlue Trap Context Diagnostic
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up with ReXGlue generated `__imp__` implementations as the reference.
+- Keep the Switch side frozen at the LibertyRecompExeFs / NSP-like pre-guest baseline unless a scoped regression check is explicitly needed.
+- Do not treat repeated `tw/td trap hit (type 22)` lines as a crash without mapping their LR/CTR/R12 source first.
+
+Completed in this batch:
+
+- Re-read the ReXGlue `Function-Overrides.md` and `Generated-Code-Structure.md` wiki pages.
+- Confirmed the generated code pattern: public recompiled functions are weak aliases, `__imp__*` symbols are the generated implementations, and project-side strong public symbols are the correct wrapper/override boundary.
+- Added bounded ReXGlue PPC trap context diagnostics in `glue/rexglue-sdk-main/include/rex/ppc/context.h`.
+- `ppc_trap()` now logs `lr`, `ctr`, `r12`, `r1`, `r3`, `r4`, and a monotonic count for trap types `0` and `22`.
+- The trap log is rate-limited to the first 128 hits and every 1000th hit afterward so a polling/assert loop does not flood logs indefinitely.
+- Mapped the repeated trap source:
+  - trap LR: `0x82994870`
+  - `ctr`: `0x82A0270C`
+  - `r12`: `0x8298EF88`
+  - `r3`: `0x00000002`
+  - `r4`: `0x00000000`
+- Generated-code mapping:
+  - `0x82994870` is inside `__imp__sub_82994840` in `gta4_recomp.66.cpp`.
+  - `sub_82994840` loads the callback/global at `0x83010000 - 31808 = 0x830083C0`; when it is zero, it calls `sub_8299BEA0` with `r3=2` and then executes `twi 31,r0,22`.
+  - `0x8298EF88` is a caller in `gta4_recomp.65.cpp` that stores trap code `22` and calls `sub_82994840`.
+  - `0x82A0270C` also appears as the generated `KeTlsGetValue` import thunk / disabled BootGlobals `VTABLE2_VALUE`, so it must not be blindly installed as an assert callback without checking the guest initialization path.
+- Confirmed `sub_82992680` calls `sub_82994830(0)`, and generated `__imp__sub_82994830` stores its `r3` argument into `0x830083C0`. The currently observed trap is therefore consistent with the guest failure/assert callback pointer being intentionally zeroed or not later initialized.
+- No generated code was edited.
+
+Fresh verification:
+
+- Red check before the diagnostic change:
+  `TRAP_CONTEXT_DIAGNOSTIC_COUNT=0` for the expected `tw/td trap hit (type 22 lr=` needle, confirming the old logs did not expose the necessary context.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- glue/rexglue-sdk-main/include/rex/ppc/context.h` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. The first Ninja invocation timed out at the Codex command bound while the background build continued; a follow-up Ninja invocation returned `ninja: no work to do`, confirming the target completed.
+- Bounded smoke used a temporary executable-root `portable.txt` and executable-root `game` junction pointing to:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-trapctx-3e6acd66-1dd0-45bb-8d54-5c0def5d8a90.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-trapctx-6577b2fe-3a6f-418a-8594-55413b441b46.log`
+- Smoke result:
+  killed intentionally at the 45-second bound. Counts: `tw/td trap hit (type 22 lr=)=99`, `[VFS] CONTENT LAYOUT MISSING=1`, `MISSING-FUNC=11`, `[VEH]=0`, `0xC0000005=0`, `0xC00000FD=0`.
+- Fresh pre-commit verification rerun:
+  - Build: `ninja: no work to do` with exit code 0.
+  - Smoke stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-trapctx-fresh-3879ad9b-9dc6-44a8-b71c-4810d831606d.log`
+  - Smoke stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-trapctx-fresh-8ea88450-769b-4e13-99cd-f526840472d3.log`
+  - Smoke result: killed intentionally at the 45-second bound. Counts: `TRAP_CONTEXT_COUNT=99`, `CONTENT_LAYOUT_MISSING_COUNT=1`, `MISSING_FUNC_COUNT=11`, `VEH_COUNT=0`, `ACCESS_VIOLATION_COUNT=0`, `UNHANDLED_EXCEPTION_COUNT=0`, `C0000005_COUNT=0`, `C00000FD_COUNT=0`.
+  - First trap line: `lr=82994870 ctr=82A0270C r12=8298EF88 r1=800802E0 r3=00000002 r4=00000000 count=1`.
+- Temporary `portable.txt` and the temporary `game` junction were removed after the smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `glue/rexglue-sdk-main/include/rex/ppc/context.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope if they reappear in a full status:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`.
+
+Next small tasks:
+
+1. Add a scoped ReXGlue-style wrapper diagnostic around `sub_82994830` / `sub_82994840` only if the next smoke needs setter/read evidence.
+   Completion standard: confirm public wrapper ownership with `__imp__` call-through and do not edit generated files.
+2. Determine whether `0x830083C0` is expected to remain zero after CRT init.
+   Completion standard: map every generated writer/caller of `sub_82994830` and the boot call order that reaches `sub_82992680`.
+3. If the assert callback is intentionally zero, reclassify repeated type-22 traps as expected guest assert/reporting noise and move to newer `MISSING-FUNC` entries.
+   Completion standard: document the evidence and stop treating the type-22 trap count as the primary blocker.
+4. If a missing initialization path should install a callback, implement the smallest project-side wrapper/initialization fix.
+   Completion standard: use a strong public wrapper plus `__imp__` call-through, build, smoke, and verify the callback value before and after the change.
+5. Continue to the next runtime blocker after this diagnostic is committed.
+   Completion standard: build succeeds, bounded smoke has no precise exception keywords, this guide is updated, scoped files are committed and pushed.
+
+Next stage entry condition:
+
+- Resume at the `0x830083C0` assert callback boundary, not at generic `tw/td trap` logging.
+- The next decision is whether to instrument `sub_82994830` / `sub_82994840`, or reclassify type-22 traps as expected once boot-order evidence proves the zero callback is intentional.
