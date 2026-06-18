@@ -13,6 +13,7 @@
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
+#include <rex/system/user_module.h>
 #include <rex/system/util/xex2_info.h>
 
 #include "gta4_config.h"
@@ -357,6 +358,53 @@ bool preflight_default_xex(const std::filesystem::path& game_root, rex::Runtime&
     return preflight_xex_metadata(host_path, file_size);
 }
 
+bool log_loaded_xex_state(rex::Runtime& runtime) {
+    auto* kernel_state = runtime.kernel_state();
+    if (kernel_state == nullptr) {
+        REXLOG_ERROR("XEX load audit: module-state missing kernel state");
+        return false;
+    }
+
+    const auto module = kernel_state->GetExecutableModule();
+    if (!module) {
+        REXLOG_ERROR("XEX load audit: module-state missing executable module");
+        return false;
+    }
+
+    const auto* xex_module = module->xex_module();
+    const auto* security_info = xex_module->xex_security_info();
+    const auto* import_libraries = xex_module->import_libraries();
+
+    std::size_t import_count = 0;
+    for (const auto& import_library : *import_libraries) {
+        import_count += import_library.imports.size();
+    }
+
+    std::size_t executable_sections = 0;
+    std::size_t writable_sections = 0;
+    for (const auto& section : xex_module->pe_sections()) {
+        if ((section.flags & kXEPESectionMemoryExecute) != 0) {
+            ++executable_sections;
+        }
+        if ((section.flags & kXEPESectionMemoryWrite) != 0) {
+            ++writable_sections;
+        }
+    }
+
+    REXLOG_INFO(
+        "XEX load audit: module-state name={} path={} title=0x{:08X} executable={} dll={} hmodule=0x{:08X} guest_xex_header=0x{:08X} entry=0x{:08X} stack=0x{:08X}",
+        module->name(), module->path(), module->title_id(), module->is_executable() ? "yes" : "no",
+        module->is_dll_module() ? "yes" : "no", module->hmodule_ptr(), module->guest_xex_header(),
+        module->entry_point(), module->stack_size());
+    REXLOG_INFO(
+        "XEX load audit: module-state image_base=0x{:08X} image_size=0x{:08X} export=0x{:08X} pages={} sections={} executable_sections={} writable_sections={} import_libs={} imports={}",
+        xex_module->base_address(), security_info->image_size, security_info->export_table,
+        security_info->page_descriptor_count, xex_module->pe_sections().size(), executable_sections,
+        writable_sections, import_libraries->size(), import_count);
+
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -412,6 +460,11 @@ int main(int argc, char** argv) {
             runtime.Shutdown();
             rex::ShutdownLogging();
             return 4;
+        }
+        if (!log_loaded_xex_state(runtime)) {
+            runtime.Shutdown();
+            rex::ShutdownLogging();
+            return 5;
         }
         REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
                     load_status);

@@ -170,6 +170,13 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `xboxkrnl:0x1b (ExThreadObjectType)`.
 - `LoadXexImage()` still starts ReXGlue's kernel dispatch host thread through
   `KernelState::SetExecutableModule()`. It is not a no-side-effect preflight.
+- The opt-in audit now logs public post-load module state from ReXGlue:
+  `name=default`, `path=\Device\Harddisk0\Partition1\default.xex`,
+  `title=0x545407F2`, `entry=0x829A0860`, `stack=0x00040000`,
+  `hmodule=0x0001B000`, `guest_xex_header=0x0001C000`,
+  `image_base=0x82000000`, `image_size=0x011F0000`, `pages=287`,
+  `sections=13`, `executable_sections=2`, `writable_sections=6`,
+  `import_libs=2`, and loaded import entries `247`.
 - Guest main launch remains disabled because `LaunchModule()` is not called.
 - This is a module materialization audit only, not a playable state.
 
@@ -194,8 +201,10 @@ Phase 3 has advanced from content/XEX preflight to a controlled
 - The current implementation only crosses this boundary when the user passes
   `--audit-load-xex`. The normal smoke path continues to prove the safe
   metadata/pre-guest boundary first.
-- The next boundary is post-`LoadXexImage()` module-state diagnostics while
+- The post-`LoadXexImage()` module-state diagnostics are now verified while
   still keeping `LaunchModule()` disabled.
+- The next boundary is import/export coverage: the temporary sidecar import
+  bridge must be replaced or justified before guest main launch.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -317,14 +326,14 @@ Completion standard:
    Completion standard: only the sidecar and audit docs are staged, the commit
    message states the ReXGlue module materialization boundary, and the current
    codex branch is pushed.
-2. Add post-`LoadXexImage()` module-state logging without calling
-   `LaunchModule()`.
-   Completion standard: the sidecar logs the executable module/load status,
-   image base/size, entry point, import summary, and any public ReXGlue module
-   state available through stable APIs.
-3. Classify the temporary import bridge before guest launch.
+2. Classify the temporary import bridge before guest launch.
    Completion standard: decide between a full non-codegen-only ReXGlue kernel
    build and real sidecar export implementations, with the reason recorded.
+3. Add an export-coverage diagnostic around the eight bridge symbols and the
+   `ExThreadObjectType` variable import warning.
+   Completion standard: the sidecar records whether these are SDK-linkage debt,
+   GTA IV override debt, or true missing runtime exports before any
+   `LaunchModule()` attempt.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module
    materialization/import bridge boundary is stable.

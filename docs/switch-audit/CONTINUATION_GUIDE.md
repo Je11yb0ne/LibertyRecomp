@@ -3800,3 +3800,90 @@ Next stage entry condition:
 - Do not call `LaunchModule()`.
 - Do not treat the temporary import bridge as a real runtime implementation.
 - Keep generated sources, thirdparty submodules, and Switch packaging untouched.
+
+## 2026-06-19 Windows Continuation 82: ReXGlue Post-Load Module-State Diagnostics
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue Windows-first ReXGlue takeover through the separate `LibertyRecompRex` sidecar.
+- Improve the `--audit-load-xex` path with post-load module-state evidence.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Used a smoke/log assertion as the TDD red test:
+  - ran `LibertyRecompRex.exe ... --audit-load-xex`,
+  - asserted that the log should contain `XEX load audit: module-state`,
+  - confirmed the assertion failed because no post-load module-state logging existed yet.
+- Added `log_loaded_xex_state()` in `LibertyRecompRex/src/main.cpp`.
+- The logger uses only public ReXGlue APIs:
+  - `runtime.kernel_state()`,
+  - `KernelState::GetExecutableModule()`,
+  - `UserModule::name()`, `path()`, `title_id()`, `entry_point()`, `stack_size()`, `guest_xex_header()`, `hmodule_ptr()`, `is_executable()`, `is_dll_module()`,
+  - `UserModule::xex_module()`,
+  - `XexModule::xex_security_info()`, `base_address()`, `pe_sections()`, and `import_libraries()`.
+- The first compile attempt failed because `XexModule::pe_sections()` returns `PESection`, not `BinarySection`; `PESection` exposes flags, not `executable`/`writable` booleans.
+- Minimal fix: count executable/writable sections from `PESection.flags` using `kXEPESectionMemoryExecute` and `kXEPESectionMemoryWrite`.
+- The opt-in path now fails with exit code `5` if `LoadXexImage()` succeeds but no executable module state can be read.
+- The default sidecar path remains unchanged and still does not call `LoadXexImage()`.
+- The opt-in path still does not call `LaunchModule()`.
+
+Fresh verification:
+
+- TDD red command:
+  ran `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex` and asserted `XEX load audit: module-state`.
+- TDD red result:
+  expected failure, `TDD_RED_PASS module-state log missing as expected`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded after the `PESection.flags` correction. The existing vcpkg applocal warning about missing `dumpbin`, `llvm-objdump`, or `objdump` remained.
+- Default sidecar smoke command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; log assertions confirmed `Audit LoadXexImage: no`, `XEX load audit: skipped`, no `XEX load audit: module-state`, and no `Loading XEX image:`.
+- Opt-in LoadXex/module-state command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in LoadXex/module-state result:
+  exit code `0`; log assertions confirmed `Audit LoadXexImage: yes`, module-state identity/path, `title=0x545407F2`, `image_base=0x82000000`, `import_libs=2 imports=247`, `XEX load audit: LoadXexImage returned 00000000; LaunchModule skipped`, and no `Launching module`.
+- Observed module-state log:
+  `name=default`, `path=\Device\Harddisk0\Partition1\default.xex`, `title=0x545407F2`, `executable=yes`, `dll=no`, `hmodule=0x0001B000`, `guest_xex_header=0x0001C000`, `entry=0x829A0860`, `stack=0x00040000`, `image_base=0x82000000`, `image_size=0x011F0000`, `export=0x00000000`, `pages=287`, `sections=13`, `executable_sections=2`, `writable_sections=6`, `import_libs=2`, `imports=247`.
+- Sidecar log:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.log`
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- No Switch build was run in this batch because Switch remains paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this post-load module-state diagnostics stage.
+   Completion standard: only the allowed current-stage files are staged, commit message states the Windows/ReXGlue post-load diagnostics boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Classify the temporary sidecar import bridge before guest execution.
+   Completion standard: record whether the next path is a complete non-codegen-only ReXGlue kernel build or real sidecar export implementations.
+3. Add export-coverage diagnostics for the eight bridge symbols and the `ExThreadObjectType` variable import warning.
+   Completion standard: the sidecar records whether each unresolved item is SDK-linkage debt, GTA IV override debt, or true missing runtime export before any `LaunchModule()` attempt.
+4. Keep Vulkan-first graphics work behind the module/import boundary.
+   Completion standard: no runtime graphics backend is enabled until module materialization and export coverage are stable.
+
+Next stage entry condition:
+
+- Start with import/export coverage classification.
+- Do not call `LaunchModule()`.
+- Do not treat the temporary import bridge as a real runtime implementation.
+- Keep generated sources, thirdparty submodules, and Switch packaging untouched.
