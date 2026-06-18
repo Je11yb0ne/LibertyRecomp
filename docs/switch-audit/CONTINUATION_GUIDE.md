@@ -3314,3 +3314,80 @@ Next stage entry condition:
 - Keep Switch paused.
 - Keep `LibertyRecomp/kernel/imports.cpp`, generated sources, and thirdparty
   untouched unless the probe produces a concrete, recorded blocker.
+
+## 2026-06-19 Windows Continuation 76: ReXGlue Sidecar API Probe
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Move Windows toward a ReXGlue-owned runtime path while keeping the legacy `LibertyRecomp` executable as the smoke comparison harness.
+- Do not claim Windows or Switch playability.
+
+Completed in this batch:
+
+- Added a guarded Windows-only `LibertyRecompRex` sidecar target from the top-level CMake file.
+  - The target is enabled by `LIBERTY_RECOMP_BUILD_REX_SIDECAR` only on non-Switch Windows builds.
+  - It links directly against the local ReXGlue prebuilt static libraries under `glue/rexglue-sdk-main/out/win-amd64`.
+  - It is intentionally separate from the existing `LibertyRecomp` target and does not launch guest code.
+- Added a minimal direct `rex::Runtime` tool-mode smoke executable.
+  - The executable creates a ReXGlue log file beside the sidecar binary.
+  - It sets `RuntimeConfig::tool_mode = true` and installs `rex::kernel::InitializeKernel`.
+  - It calls `Runtime::Setup()` only, logs the pre-guest boundary, shuts down, and exits.
+- Classified and fixed sidecar compatibility blockers:
+  - The vendored ReXGlue SIMDe checkout under `glue/rexglue-sdk-main/thirdparty/simde` lacks `simde/x86/avx.h`; the sidecar now falls back to the existing `tools/XenonRecomp/thirdparty` include root without modifying any submodule.
+  - `X_STATUS` is namespaced as `rex::X_STATUS` in this SDK.
+  - Direct prebuilt-library linking did not inherit spdlog target definitions, so the sidecar now defines `SPDLOG_COMPILED_LIB` to avoid header-only duplicate symbols.
+  - `LogConfig::log_file` stores a `const char*`; the sidecar now keeps the log path string alive before calling `BuildLogConfig()` to avoid the earlier `0xC0000409` startup crash.
+
+Fresh verification:
+
+- Configure command:
+  `$env:VCPKG_ROOT='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\vcpkg'; cmake -S C:\Users\Jellybone\Documents\GitHub\LibertyRecomp -B C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest`
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal script still reports that no `dumpbin`, `llvm-objdump`, or `objdump` is available for DLL dependency copying, but Ninja returned success and the sidecar executable was produced.
+- Sidecar executable:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe`
+- Sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Sidecar smoke result:
+  exit code `0`; created `LibertyRecompRex.log`; reached `Runtime initialized in tool mode (no GPU)` and `ReXGlue runtime setup reached tool-mode pre-guest boundary`.
+- Sidecar log:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.log`
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`, preserving the current legacy smoke harness.
+- No Switch build was run in this batch because Switch is paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `CMakeLists.txt`,
+  `LibertyRecompRex/CMakeLists.txt`,
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  and optionally `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md` if this phase status is summarized there.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this Windows ReXGlue sidecar/API-probe stage.
+   Completion standard: only the sidecar files, top-level CMake gate, and documentation are staged; commit message states the Windows/ReXGlue pre-guest sidecar boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Start Phase 2: attach existing generated GTA IV sources to the sidecar without launching guest code.
+   Completion standard: include generated source metadata/config in the sidecar target, compile/link blockers are classified as SDK, generated-source, or legacy-glue blockers, and tracked generated sources remain read-only.
+3. Wire `PPCImageConfig` / generated function mappings into the sidecar only after the generated-source target is visible.
+   Completion standard: sidecar can construct the runtime with the existing GTA IV code/image metadata or records the exact API mismatch.
+4. Keep Vulkan-first work as a later explicit sidecar graphics policy.
+   Completion standard: do not enable D3D12/Vulkan runtime graphics in the sidecar until the pre-guest generated-source boundary is stable.
+
+Next stage entry condition:
+
+- Begin with generated-source integration into `LibertyRecompRex`, still before `LoadXexImage()` or guest launch.
+- Keep `LibertyRecomp/kernel/imports.cpp`, generated source contents, thirdparty submodules, and Switch packaging untouched unless the generated-source integration produces a concrete, recorded blocker.

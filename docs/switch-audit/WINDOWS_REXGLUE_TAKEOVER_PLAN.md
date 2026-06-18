@@ -103,6 +103,22 @@ needs a real deko3d/NVN-style backend or a deliberate portability layer later.
 
 ## Shortest Implementation Path
 
+### Current Phase Status
+
+Phase 1 is now verified as a direct `rex::Runtime` tool-mode sidecar, not yet a
+full `rex::ReXApp` migration:
+
+- `LibertyRecompRex` is a Windows-only sidecar target gated by
+  `LIBERTY_RECOMP_BUILD_REX_SIDECAR`.
+- It links against the local ReXGlue prebuilt static libraries.
+- It reaches `Runtime initialized in tool mode (no GPU)` and
+  `ReXGlue runtime setup reached tool-mode pre-guest boundary` with exit code
+  `0`.
+- The legacy `LibertyRecomp` target still builds in the same Windows build
+  directory.
+- Guest XEX loading, generated-source attachment, `PPCImageConfig`, and
+  graphics backend selection remain future phases.
+
 ### Phase 1: API And CMake Compatibility Probe
 
 Goal: prove the current repo can build a tiny ReXGlue-native Windows target

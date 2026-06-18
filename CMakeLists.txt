@@ -86,3 +86,11 @@ endif()
 # Include sub-projects.
 add_subdirectory("LibertyRecompLib")
 add_subdirectory("LibertyRecomp")
+
+if (WIN32 AND NOT LIBERTY_RECOMP_SWITCH)
+    option(LIBERTY_RECOMP_BUILD_REX_SIDECAR
+        "Build the Windows-only ReXGlue runtime sidecar audit target." ON)
+    if (LIBERTY_RECOMP_BUILD_REX_SIDECAR)
+        add_subdirectory("LibertyRecompRex")
+    endif()
+endif()
