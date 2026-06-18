@@ -3480,3 +3480,81 @@ Next stage entry condition:
 - Begin with XEX/content preflight in `LibertyRecompRex`, still stopping before `LoadXexImage()` and guest code.
 - Do not let the temporary bridge become a runtime implementation.
 - Keep Switch paused and do not modify generated sources or thirdparty submodules.
+
+## 2026-06-19 Windows Continuation 78: ReXGlue Sidecar XEX Preflight
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue the Windows-only `LibertyRecompRex` sidecar toward ReXGlue-owned content/module setup.
+- Prove `game:\default.xex` path resolution and XEX recognition before any `LoadXexImage()` call.
+- Do not launch guest code or claim playability.
+
+Completed in this batch:
+
+- Used a smoke/log assertion as the TDD red test:
+  - ran the current sidecar,
+  - asserted that the log should contain `XEX preflight: game:\default.xex`,
+  - confirmed the assertion failed because that preflight log was missing.
+- Added a minimal `preflight_default_xex()` helper in `LibertyRecompRex/src/main.cpp`.
+- The helper runs after `Runtime::Setup(...)` succeeds and before any future `LoadXexImage()` call.
+- It checks:
+  - host file presence at `<game_root>\default.xex`,
+  - host file size,
+  - ReXGlue VFS resolution of `game:\default.xex`,
+  - first four file bytes for `XEX1` or `XEX2` magic.
+- The sidecar exits with code `3` if the preflight fails, after logging a clear stop-before-load reason.
+- The sidecar still never calls `LoadXexImage()` or `LaunchModule()`.
+
+Fresh verification:
+
+- TDD red command:
+  ran `LibertyRecompRex.exe` against `glue\rexglue-sdk-main\gta4-recomp\assets` and searched the generated log for `XEX preflight: game:\default.xex`.
+- TDD red result:
+  expected failure, `XEX preflight log is missing`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`, `llvm-objdump`, or `objdump` remained, but Ninja returned success.
+- TDD green/smoke command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- TDD green/smoke result:
+  exit code `0`; the log contains `XEX preflight: game:\default.xex`, VFS resolution to `\Device\Harddisk0\Partition1\default.xex`, host path `...\gta4-recomp\assets\default.xex`, `size=11841536`, `vfs_size=11841536`, and `magic=XEX2`.
+- Sidecar log:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.log`
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- No Switch build was run in this batch because Switch remains paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this sidecar XEX preflight stage.
+   Completion standard: only the three allowed current-stage files are staged, commit message states the Windows/ReXGlue XEX preflight boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Investigate the safest next module boundary before calling `LoadXexImage()`.
+   Completion standard: inspect ReXGlue `Runtime::LoadXexImage`, `KernelState::LoadUserModule`, `UserModule::LoadFromFile`, and `XexModule::Load/LoadContinue` enough to identify the first memory/import side effect.
+3. Decide whether the next test should call `LoadXexImage()` or introduce a sidecar-only metadata preflight.
+   Completion standard: the guide records the decision and why it does or does not cross into guest-memory writes.
+4. Plan replacement for the temporary import bridge before guest launch.
+   Completion standard: choose complete SDK kernel rebuild/linking or real sidecar exports before executing guest code.
+
+Next stage entry condition:
+
+- Continue with module-load side-effect audit in `LibertyRecompRex`.
+- Do not call `LaunchModule()` in the next stage.
+- Do not treat the temporary import bridge as a real runtime implementation.
+- Keep Switch paused and leave generated sources plus thirdparty submodules untouched.

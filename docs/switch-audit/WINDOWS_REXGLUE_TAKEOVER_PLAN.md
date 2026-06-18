@@ -142,6 +142,17 @@ boundary, still before XEX load or guest launch:
 - The legacy `LibertyRecomp` target still builds in the same Windows build
   directory.
 
+Phase 3 has started with a content/XEX preflight only; it still does not call
+`LoadXexImage()`:
+
+- After `Runtime::Setup(...)`, the sidecar resolves `game:\default.xex` through
+  ReXGlue VFS and checks the host file at the configured assets root.
+- The verified GTA IV asset file is `11841536` bytes and has XEX2 magic.
+- The sidecar logs the VFS/host result and then stops at the same tool-mode
+  pre-guest boundary.
+- Real XEX loading, module materialization, import patching, and launch remain
+  future work.
+
 ### Phase 1: API And CMake Compatibility Probe
 
 Goal: prove the current repo can build a tiny ReXGlue-native Windows target
