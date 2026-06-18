@@ -1,6 +1,7 @@
 #include "vfs.h"
 #include <os/logger.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 
@@ -163,6 +164,52 @@ namespace VFS
         return IsNullDevicePathNormalized(NormalizePath(guestPath));
     }
 
+    static void LogContentLayoutMissIfNeeded(const std::string& guestPath, const std::string& normalized, const std::string& stripped)
+    {
+        static std::atomic_bool s_loggedPlatformTexturesMissing{false};
+
+        const bool isPlatformTextureRequest =
+            normalized.starts_with("platform:/textures/") ||
+            normalized == "platform:/textures" ||
+            stripped.starts_with("textures/") ||
+            stripped == "textures";
+
+        if (!isPlatformTextureRequest)
+        {
+            return;
+        }
+
+        const std::filesystem::path texturesRoot = g_extractedRoot / "xbox360" / "textures";
+        std::error_code ec;
+        if (std::filesystem::exists(texturesRoot, ec))
+        {
+            return;
+        }
+
+        if (s_loggedPlatformTexturesMissing.exchange(true))
+        {
+            return;
+        }
+
+        const std::filesystem::path xbox360Rpf = g_extractedRoot / "xbox360.rpf";
+        const std::filesystem::path gameKey = g_extractedRoot / "aes_key.bin";
+        const std::filesystem::path installKey = g_extractedRoot.parent_path() / "aes_key.bin";
+
+        ec.clear();
+        const bool hasXbox360Rpf = std::filesystem::exists(xbox360Rpf, ec);
+        ec.clear();
+        const bool hasGameKey = std::filesystem::exists(gameKey, ec);
+        ec.clear();
+        const bool hasInstallKey = std::filesystem::exists(installKey, ec);
+
+        printf("[VFS] CONTENT LAYOUT MISSING: platform texture request '%s' requires extracted '%s' (xbox360.rpf=%s aes_key.bin=%s)\n",
+               guestPath.c_str(),
+               texturesRoot.string().c_str(),
+               hasXbox360Rpf ? "present" : "missing",
+               (hasGameKey || hasInstallKey) ? "present" : "missing");
+        fflush(stdout);
+    }
+
     // Comprehensive VFS file request logging - logs ALL requests
     static int s_resolveCount = 0;
     
@@ -284,8 +331,9 @@ namespace VFS
                 }
             }
         }
-        
+
         g_stats.cacheMisses++;
+        LogContentLayoutMissIfNeeded(guestPath, normalized, stripped);
         printf("[VFS] NOT FOUND: '%s' (stripped='%s')\n", guestPath.c_str(), stripped.c_str());
         fflush(stdout);
         return {};

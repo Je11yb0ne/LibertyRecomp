@@ -2239,3 +2239,79 @@ Next stage entry condition:
 
 - Resume at Windows VFS/content-layout bring-up after the NullDevice boundary. The active blockers are incomplete `xbox360/textures` extraction / raw RPF extraction preconditions and `common:/DATA/LOADINGSCREENS_360.DAT` resolution.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 63: Platform Texture Content Layout Diagnostic
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up with ReXGlue VFS behavior as the reference.
+- Keep Switch frozen at the LibertyRecompExeFs / NSP-like pre-guest baseline unless a scoped regression check is required.
+- Do not chase `platform:/textures/*` misses as wrapper bugs while the content layout still lacks the extracted `game/xbox360/textures` tree and AES key.
+
+Completed in this batch:
+
+- Re-read the current audit guide, ReXGlue `Virtual-File-System.md`, and ReXGlue `Generated-Code-Structure.md`.
+- Reproduced the current Windows VFS/content front edge with the correct portable setup under the executable directory:
+  `...\liberty-build-x64-clang-nomanifest\LibertyRecomp\portable.txt` and a temporary `game` junction to the user's real GTA IV directory.
+- Confirmed the previous failed smoke setup was invalid because it placed `portable.txt` and `game` in the build root instead of the executable root, sending the app through installer/video setup instead of guest startup.
+- Confirmed the real content preflight sees `default.xex`, extracted `common`, extracted `xbox360`, `xbox360/audio`, and the three source RPF archives, but does not see `xbox360/textures`, top-level `audio`, install `aes_key.bin`, or bundled `aes_key.bin`.
+- Checked raw source RPF headers:
+  - `common.rpf`: `RPF2`, encrypted `0xFFFFFFFF`
+  - `xbox360.rpf`: `RPF2`, encrypted `0xFFFFFFFF`
+  - `audio.rpf`: `RPF2`, encrypted `0xFFFFFFFF`
+- Searched the current repo and `D:\GTA4 NS` for `aes_key.bin`; none was found.
+- Confirmed `RpfLoader` exists but is not currently wired into `VFS::Resolve()`, and current source RPFs cannot be parsed usefully without AES key material anyway.
+- Added a one-shot VFS diagnostic for missing platform texture content. When `platform:/textures/*` misses and `game/xbox360/textures` is absent, `VFS::Resolve()` now logs:
+  `[VFS] CONTENT LAYOUT MISSING: platform texture request ... (xbox360.rpf=present aes_key.bin=missing)`.
+- This is a diagnostic boundary only. It does not synthesize files, does not alter path resolution, and does not enable raw RPF runtime extraction.
+
+Fresh verification:
+
+- Red check before the change:
+  `CONTENT_LAYOUT_DIAGNOSTIC_COUNT=0` and the assertion for the new diagnostic failed as expected.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/vfs.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. Existing warning remained: `vfs.h` block-comment warning. The existing vcpkg applocal warning about missing `dumpbin` / `objdump` still appears after link and does not fail Ninja.
+- Final bounded smoke used a temporary executable-root `portable.txt` and executable-root `game` junction pointing to:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-contentdiag-27dc1e3b-7a69-4f27-b6ad-4de09d948047.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-contentdiag-b7591408-d055-46ce-ab42-8fbf8be226a7.log`
+- Smoke result:
+  killed intentionally at the 45-second bound. Counts: `Windows VFS preflight=12`, `CONTENT LAYOUT MISSING=1`, `platform:/textures=26`, `LOADINGSCREENS=1`, `NULL_DEVICE=1`, `MISSING-FUNC=11`, `tw/td trap hit=99`.
+- A precise exception keyword scan found no `[VEH]`, access violation, unhandled exception, `0xC0000005`, or `0xC00000FD` lines. The earlier broad `VEH` count was a false positive from text such as `vehicleFx`.
+- Temporary `portable.txt` and the temporary `game` junction were removed after the smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/vfs.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`.
+
+Next small tasks:
+
+1. Decide the next content-prep boundary.
+   Completion standard: either locate/generate a valid `aes_key.bin` and run installer/RPF extraction toward `game/xbox360/textures`, or explicitly keep raw encrypted RPF extraction out of scope for the next runtime step.
+2. If content remains incomplete, stop chasing `platform:/textures/*` as a runtime VFS bug.
+   Completion standard: use the new diagnostic as evidence and move to a blocker that can be fixed without missing content, such as the repeated trap or nullable vtable diagnostics.
+3. Trace one repeated `tw/td trap hit (type 22)` source.
+   Completion standard: map one repeated LR/R12/function source and decide whether it is expected assert/polling behavior or a real runtime blocker.
+4. Trace the newer `MISSING-FUNC` entries after the known null slots.
+   Completion standard: map `82753D70`, `824315D4`, or `82196C50/98/B4` to generated/source context and decide whether a wrapper, vtable setup, or service callback is missing.
+5. Keep any next wrapper/runtime change ReXGlue-first.
+   Completion standard: confirm generated `__imp__` ownership and link-map behavior before editing wrappers; use ReXGlue VFS semantics for device/path behavior.
+6. Rebuild, bounded smoke, update this guide, stage scoped files only, commit, push, and continue immediately.
+
+Next stage entry condition:
+
+- Resume after the verified platform texture content diagnostic. The immediate choice is content prep (`aes_key.bin` plus RPF extraction) versus moving to the repeated trap / newer `MISSING-FUNC` runtime diagnostics while content remains incomplete.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
