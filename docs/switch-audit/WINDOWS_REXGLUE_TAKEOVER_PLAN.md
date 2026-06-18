@@ -148,6 +148,14 @@ Phase 3 has started with a content/XEX preflight only; it still does not call
 - After `Runtime::Setup(...)`, the sidecar resolves `game:\default.xex` through
   ReXGlue VFS and checks the host file at the configured assets root.
 - The verified GTA IV asset file is `11841536` bytes and has XEX2 magic.
+- The sidecar now also parses XEX metadata from a host file buffer before
+  ReXGlue loader entry:
+  `moduleFlags=0x00000001`, `headerSize=0x3000`, `security=0x90`,
+  `optHeaders=15`, `imageSize=0x11F0000`, `load=0x82000000`,
+  `imageBase=0x82000000`, `entry=0x829A0860`, `fileFormat enc=1 comp=1`,
+  `resources=1`, `importLibs=2`, `imports=484`, `pages=287`.
+- The metadata preflight confirms `imageBase` and `imageSize` match
+  `PPCImageConfig`.
 - The sidecar logs the VFS/host result and then stops at the same tool-mode
   pre-guest boundary.
 - Real XEX loading, module materialization, import patching, and launch remain
