@@ -3221,3 +3221,96 @@ Next stage entry condition:
 - Begin with a Windows-only ReXGlue app-shell prototype plan, not Switch runtime work.
 - Do not edit `LibertyRecomp/kernel/imports.cpp`, `kernel/memory.cpp`, or Switch packaging during the planning step.
 - Keep the next code edit narrow and reversible; no broad migration until the sidecar target compiles or fails with a recorded blocker.
+
+## 2026-06-19 Windows Continuation 75: ReXGlue Takeover Path
+
+Current mainline goal:
+
+- Pause Switch implementation.
+- Move Windows toward a ReXGlue-native app/runtime path without deleting the
+  current legacy `LibertyRecomp` smoke harness.
+- Keep ReXGlue as the primary runtime/codegen direction; keep XenonRecomp as an
+  auxiliary reference.
+
+Completed in this batch:
+
+- Re-read the ReXGlue wiki and compared it against the actual local SDK and CLI.
+- Confirmed the built CLI at
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\tools\rexglue-sdk-0.8.1.32-dev.gf22cd9d-win-amd64\bin\rexglue.exe`
+  is manifest-first:
+  `rexglue init --project-name ... --xex-path ... --game-root ... --project-root ...`.
+- Ran a temporary `rexglue init` probe against the repo's GTA IV `default.xex`.
+  The generated skeleton used `generated/rexglue.cmake`,
+  `rexglue_setup_target(<target>)`, `REX_DEFINE_APP`, and a `ReXApp` subclass
+  constructed with `PPCImageConfig`.
+- Confirmed version skew:
+  - the local wiki describes a larger `ReXApp` lifecycle than the vendored
+    `rex_app.h`;
+  - the generated app header comments mention hooks that the vendored header
+    does not expose;
+  - the vendored header currently exposes `OnConfigurePaths`, `OnPreSetup`,
+    `OnPostSetup`, `OnCreateDialogs`, and `OnShutdown`;
+  - the generated helper links `rex::runtime`, while the vendored source
+    currently exposes `rex::system` from `src/system/CMakeLists.txt` and notes
+    the former runtime target was merged into system.
+- Confirmed Windows Vulkan needs to be explicit:
+  - ReXGlue defaults to D3D12 ON and Vulkan OFF on Windows;
+  - ReXApp chooses D3D12 before Vulkan when D3D12 is available;
+  - a Vulkan-first sidecar needs `REXGLUE_USE_VULKAN=ON` and likely an
+    `OnPreSetup()` graphics override or D3D12 disabled for that target.
+- Created `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+
+Decision:
+
+- Do not push a full rewrite.
+- Next implementation boundary is a Windows-only sidecar ReXGlue takeover
+  target.
+- Keep the current legacy `LibertyRecomp` target as the comparison/smoke
+  harness until the sidecar reaches an equal or better startup boundary.
+- Do not move Switch to the sidecar until Windows proves the route.
+
+Fresh verification:
+
+- This batch is documentation/research only; no runtime, generated, thirdparty,
+  or Switch source files were changed.
+- Verification before commit:
+  `git diff --check -- docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md docs/switch-audit/CONTINUATION_GUIDE.md`
+- No rebuild is required for this docs-only planning stage.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this Windows ReXGlue takeover plan.
+   Completion standard: only the two docs files are staged, commit message
+   states the Windows/ReXGlue planning boundary, and branch
+   `codex/switch-audit-20260615` is pushed.
+2. Start the Windows-only sidecar CMake/API compatibility probe.
+   Completion standard: CMake can see a sidecar target without affecting the
+   existing `LibertyRecomp` or Switch audit targets.
+3. Resolve `rex::runtime` vs `rex::system` target compatibility.
+   Completion standard: either the installed package provides `rex::runtime`, or
+   a local sidecar-only link/alias strategy is documented and verified.
+4. Build the sidecar without guest launch.
+   Completion standard: the sidecar executable links, and the legacy
+   `LibertyRecomp` target still builds.
+5. Attach existing generated GTA IV sources only after the sidecar shell links.
+   Completion standard: duplicate/missing symbol blockers are classified by
+   subsystem before any override migration.
+
+Next stage entry condition:
+
+- Begin with the sidecar CMake/API compatibility probe.
+- Keep Switch paused.
+- Keep `LibertyRecomp/kernel/imports.cpp`, generated sources, and thirdparty
+  untouched unless the probe produces a concrete, recorded blocker.
