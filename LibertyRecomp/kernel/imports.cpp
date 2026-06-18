@@ -10307,6 +10307,7 @@ PPC_FUNC(sub_827E8180) {
 }
 
 extern "C" void sub_827E8880(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827E8880(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827E8880) {
     static int s_count = 0; ++s_count;
 
@@ -10322,16 +10323,17 @@ PPC_FUNC(sub_827E8880) {
                      field0, field4, field8);
     }
 
-    sub_827E8880(ctx, base);
+    __imp__sub_827E8880(ctx, base);
 
     LOGF_WARNING("[sub_827E8880] EXIT #{} r3={}", s_count, ctx.r3.s32);
 }
 
 extern "C" void sub_8285B680(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8285B680(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8285B680) {
     static int s_count = 0; ++s_count;
     LOGF_WARNING("[sub_8285BDC8] sub_8285B680 ENTER #{} (shader load)", s_count);
-    sub_8285B680(ctx, base);
+    __imp__sub_8285B680(ctx, base);
     LOGF_WARNING("[sub_8285BDC8] sub_8285B680 EXIT #{}", s_count);
 }
 
@@ -12623,6 +12625,7 @@ PPC_FUNC(sub_829A3318)
 // Validates stream struct pointers before dereferencing to prevent crash at 0x400000000
 // Stream struct layout: [0]=object ptr, [4]=ctx, [8]=buffer, [12]=pos, [16]=cursor, [20]=end, [24]=capacity
 extern "C" void sub_827E8420(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827E8420(PPCContext& ctx, uint8_t* base);
 
 // Helper to repair corrupted stream at 0x82003890
 static void RepairCorruptedStream(uint32_t streamPtr)
@@ -12712,7 +12715,7 @@ PPC_FUNC(sub_827E8420)
     }
 
     // All pointers validated - call original implementation
-    sub_827E8420(ctx, base);
+    __imp__sub_827E8420(ctx, base);
 }
 
 // =============================================================================
@@ -13725,6 +13728,7 @@ static std::string ReadGuestString(uint8_t* base, uint32_t addr, int maxLen = 26
 // sub_822F3110 - File parsing loop iterator (called repeatedly)
 // PHASE 1: Deep instrumentation to find blocking point
 extern "C" void sub_822F3110(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_822F3110(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_822F3110) {
     static int s_count = 0; ++s_count;
 
@@ -13778,7 +13782,7 @@ PPC_FUNC(sub_822F3110) {
         LOGF_WARNING("[FILE-PARSE] sub_822F3110 #{} LR=0x{:08X} (caller)", s_count, (uint32_t)ctx.lr);
     }
 
-    sub_822F3110(ctx, base);
+    __imp__sub_822F3110(ctx, base);
 
     if (shouldLog) {
         LOGF_WARNING("[FILE-PARSE] sub_822F3110 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
@@ -13798,9 +13802,11 @@ extern "C" void sub_82148358(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_8218BE78(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822F3110(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822F57A8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_822F57A8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_827827C8(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_82192A60(PPCContext& ctx, uint8_t* base);
 extern "C" void sub_822F87E0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_822F87E0(PPCContext& ctx, uint8_t* base);
 // __savegprlr_29 and __restgprlr_29 declared in ppc_recomp_shared.h
 
 PPC_FUNC(sub_822F8890) {
@@ -13977,7 +13983,7 @@ PPC_FUNC(sub_822F87E0) {
                          s_count, ctx.r4.u32);
         }
     }
-    sub_822F87E0(ctx, base);
+    __imp__sub_822F87E0(ctx, base);
     if (s_count <= 10) {
         LOGF_WARNING("[FILE-PARSE] sub_822F87E0 #{} EXIT", s_count);
     }
@@ -13993,7 +13999,7 @@ PPC_FUNC(sub_822F57A8) {
         LOGF_WARNING("[FILE-PARSE] sub_822F57A8 #{} ENTER r3=0x{:08X} r4=0x{:08X} r5=0x{:08X}",
                      s_count, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
     }
-    sub_822F57A8(ctx, base);
+    __imp__sub_822F57A8(ctx, base);
     if (shouldLog) {
         LOGF_WARNING("[FILE-PARSE] sub_822F57A8 #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
     }

@@ -2788,3 +2788,102 @@ Next stage entry condition:
 
 - Start at `sub_827E8180` resource path handling for `platform:/rain.dds` and `platform:/rainanim.dds`.
 - Keep graphics backend selection unchanged unless a future smoke actually fails `Video::CreateHostDevice`.
+
+## 2026-06-18 Windows Continuation 70: File/Stream Wrapper ABI Preflight
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up with ReXGlue generated `__imp__` implementations as the first source of truth.
+- Keep Switch frozen at the LibertyRecompExeFs / NSP-like pre-guest audit baseline unless explicitly testing Switch.
+- Do not enable more VFS file-open behavior until the downstream stream wrapper ABI can safely call generated code without public-alias recursion.
+
+Completed in this batch:
+
+- Investigated the current `sub_827E8180` resource/VFS boundary before changing open behavior.
+  - Current `sub_827E8180` extracts and logs paths, bypasses shader file requests, then returns `0` for every other non-empty path.
+  - The current smoke shows this for many resources, including `common:/DATA/LOADINGSCREENS_360.DAT`, `platform:/data/TIMECYC.DAT`, `platform:/data/effects/gtaRainEmitter.xml`, `platform:/rain.dds`, and `platform:/rainanim.dds`.
+  - `platform:/rain.dds` and `platform:/rainanim.dds` are requested twice each and still return `0`.
+- Compared the current code against the local `imports.cpp.old_runtime_backup`.
+  - The backup had a fuller `sub_827E8180` path with `memory:` URL support, VFS lookup, host-side synthetic file handles, and guest FileStream construction.
+  - The current file does not have the backup's `s_pcFileHandleTable` / `RegisterPcHandle()` path.
+  - `CreateKernelObject<T>()` still allocates via `g_userHeap.AllocPhysical<T>()`; the backup explicitly avoided that for `NtFileHandle` because `std::fstream` must remain in host memory.
+  - Therefore directly copying the old VFS-open path or using `CreateKernelObject<NtFileHandle>()` for `sub_827E8180` would be the wrong next fix.
+- Checked the user's real extracted GTA IV directory:
+  - `default.xex`, `common.rpf`, `xbox360.rpf`, `audio.rpf`, `common/`, and `xbox360/` are present.
+  - The extracted tree has no `rain.dds`, `rainanim.dds`, `gtaRainEmitter.xml`, `gtaRainRender.xml`, `fx_Rain`, `visualeffects`, `materials.dat`, `fragment.xml`, `LOADINGSCREENS_360.DAT`, `engineSettings.xml`, `curves.dat`, or `stream.ini` matches.
+  - The smoke also reports `xbox360/textures` missing and `aes_key.bin` missing while source RPF archives are present.
+- Found six downstream wrapper self-call hazards that must be fixed before enabling more file/stream work:
+  - `sub_827E8880`
+  - `sub_8285B680`
+  - `sub_827E8420`
+  - `sub_822F3110`
+  - `sub_822F87E0`
+  - `sub_822F57A8`
+- Verified generated ReXGlue implementations exist for all six wrappers.
+- Added a static RED/GREEN regression check for those wrappers:
+  - Before editing it failed because each wrapper called the public alias and did not call its generated `__imp__` implementation.
+  - After editing it passed.
+- Minimal code fix:
+  - Added the corresponding `extern "C" void __imp__sub_x(...)` declarations.
+  - Changed only each wrapper's internal call-through from `sub_x(ctx, base)` to `__imp__sub_x(ctx, base)`.
+  - Did not enable `sub_827E8180` VFS open behavior in this batch.
+
+Fresh verification:
+
+- Static RED result before the fix:
+  each of the six wrappers failed with `calls public alias` and `does not call generated __imp__`.
+- Static GREEN result after the fix:
+  `PASS: wrappers call generated __imp__ implementations`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remained: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, existing `ctx.lr` printf format warning, and existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-wrapper-vfs-40a50e6a-4c19-4a84-b785-e3058519b241.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-wrapper-vfs-40a50e6a-4c19-4a84-b785-e3058519b241.log`
+- Smoke result:
+  killed intentionally at the 45 second bounded smoke timeout.
+  Counts: `MISSING-FUNC=0`, `MISSING_FUNC=0`, `Access violation=0`, `C0000005=0`, `C00000FD=0`, `Unhandled exception=0`, `Exception 0x=0`.
+  The six fixed wrappers were not hit in this smoke (`sub_827E8880=0`, `sub_8285B680=0`, `sub_827E8420=0`, `sub_822F3110=0`, `sub_822F87E0=0`, `sub_822F57A8=0`), so this batch removes latent recursion debt ahead of the file/stream boundary rather than claiming a runtime path advance.
+  `sub_827E8180` still logged `350` lines, with `128` non-shader paths returning `0 (not via storage device path)`.
+  The run reached `[Main] Video device created`, `sub_8218BE28 #2500`, and `sub_82125478 #1 EXIT`.
+  The visible runtime blocker remains file/resource/content behavior: `assertcb sub_82994840` and `tw/td trap hit` begin immediately after `sub_827E8180 #108 path='platform:/data/TIMECYC.DAT' -> returning 0`.
+- Temporary `portable.txt` and the temporary executable-root `game` junction were removed after smoke.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`,
+  `.planning/`,
+  `docs/dev/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this file/stream wrapper ABI preflight.
+   Completion standard: only `imports.cpp` and this guide are staged, commit message states the audited boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Prepare a host-side file-stream handle boundary before enabling `sub_827E8180` VFS open.
+   Completion standard: decide whether to restore a narrow `s_pcFileHandleTable`/synthetic-handle path, reuse/repair existing NT file handles, or introduce a smaller host-only stream table; do not put `std::fstream` in `g_userHeap.AllocPhysical`.
+3. Add a failing static/runtime check for the chosen stream handle policy.
+   Completion standard: the check proves `sub_827E8180` cannot construct an unsafe guest-heap `std::fstream` handle and that FileStream read/close paths resolve the same synthetic handle.
+4. Implement the minimum safe `sub_827E8180` open path for existing regular files only.
+   Completion standard: shader bypass remains unchanged, missing files still return `0`, and existing files create a stream that read/close hooks can consume.
+5. Run build and bounded smoke.
+   Completion standard: no precise exception keywords, no reintroduced `MISSING_FUNC`, and resource/VFS behavior advances from unconditional `returning 0` to either `VFS FOUND` for present files or a classified missing-content/RPF-key blocker.
+
+Next stage entry condition:
+
+- Start with the host-side FileStream handle policy for `sub_827E8180`.
+- Do not enable archive/RPF fallback or `memory:` URL handling in the same edit unless a failing test and source evidence prove it is required for the first file-open boundary.
