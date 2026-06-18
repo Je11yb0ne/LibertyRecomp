@@ -2971,3 +2971,78 @@ Next stage entry condition:
 
 - Start with the VFS/RPF content boundary for `platform:/data/TIMECYC.DAT`, `platform:/rain.dds`, `platform:/rainanim.dds`, and nearby first-failing resource paths.
 - Do not enter gameplay or claim playability. This remains Windows runtime scaffolding toward a future Switch-portable baseline.
+
+## 2026-06-18 Windows Continuation 72: VFS/RPF Content Boundary Classification
+
+Current mainline goal:
+
+- Keep Windows runtime bring-up moving through content/resource blockers without broad architecture churn.
+- Treat Switch as frozen at the pre-guest audit baseline unless explicitly testing Switch.
+- Do not add runtime RPF extraction until the archive/key/tooling evidence is sufficient.
+
+Completed in this batch:
+
+- Classified the direct VFS miss set from the latest bounded smoke.
+  - First loose-file misses include `common:/DATA/LOADINGSCREENS_360.DAT`, `audio:/config/engineSettings.xml`, `platform:/config/curves.dat`, `common:/DATA/VISUALSETTINGS.DAT`, `platform:/stream.ini`, `common:/data/materials/materials.dat`, `common:/data/fragments/fragment.xml`, many `platform:/data/decision/*` files, and the visible blocker cluster around `platform:/data/TIMECYC.DAT`.
+  - `platform:/rain.dds`, `platform:/moon.dds`, and similar root platform texture requests currently hit a broad VFS platform mapping and resolve to the `game/xbox360` directory, then the new regular-file guard classifies them as `VFS RESOLVED NON-FILE`.
+- Checked the real game content tree:
+  - Top-level files present: `default.xex`, `common.rpf`, `xbox360.rpf`, `audio.rpf`.
+  - Extracted directories present: `common/`, `xbox360/`, and `xbox360/audio/`.
+  - A recursive search did not find loose `timecyc.dat`, `timecycle.dat`, `timecyclemod.dat`, `timecyclemodifiers*.dat`, `rain.dds`, `rainanim.dds`, `moon.dds`, `galaxy.dds`, `visualsettings.dat`, `hud.dat`, `hudcolor.dat`, or `loadingscreens_360.dat`.
+- Inspected current RPF-related code:
+  - `LibertyRecomp/kernel/io/rpf_loader.cpp` exists but is not currently listed in `LibertyRecomp/CMakeLists.txt`, so it is not part of the Windows executable.
+  - Backup files `vfs.cpp.clean` / `vfs.cpp.mod_backup` show an older plan to connect `RpfLoader` into `VFS::Resolve()`, but the active `vfs.cpp` does not include or call it.
+  - `imports.cpp` still has older raw RPF stream helpers and a hardcoded `common.rpf` offset table, but the active `sub_827E8180` loose-file path does not use them.
+- Verified archive/key state:
+  - `common.rpf`: `RPF2`, `tocSize=0x00004800`, `entries=477`, `encrypted=0xFFFFFFFF`.
+  - `xbox360.rpf`: `RPF2`, `tocSize=0x00007000`, `entries=987`, `encrypted=0xFFFFFFFF`.
+  - `audio.rpf`: `RPF2`, `tocSize=0x00000800`, `entries=12`, `encrypted=0xFFFFFFFF`.
+  - Searched `D:\GTA4 NS`, the GitHub repo, and the old Codex workspace for `aes_key.bin`; none was found.
+  - `tools/rpf_dump.py` currently rejects the valid little-endian `RPF2` magic value `0x32465052`, so it cannot be used as-is for this audit.
+
+Conclusion:
+
+- The current blocker is not a FileStream ABI crash. It is content availability and lookup.
+- Loose extracted content is incomplete for the current request set.
+- Runtime RPF extraction is not ready to enable because the existing loader is unlinked, the source RPFs are encrypted, and `aes_key.bin` is absent.
+- The next code change should be small and evidence-driven:
+  either fix VFS platform-prefix semantics so platform paths no longer resolve to directories or wire a verified extraction/content-prep path after the key/tooling gap is solved. Do not add speculative encrypted RPF runtime reads.
+
+Fresh verification:
+
+- Git status after the previous push showed only known unrelated dirty entries:
+  `.planning/`, `thirdparty/concurrentqueue`, `thirdparty/implot`, `thirdparty/plume`, and `tools/XenonRecomp`.
+- Source inspection:
+  `LibertyRecomp/kernel/vfs.cpp`, `LibertyRecomp/kernel/vfs.cpp.clean`, `LibertyRecomp/kernel/io/rpf_loader.cpp`, `LibertyRecomp/kernel/io/rpf_loader.h`, and `LibertyRecomp/CMakeLists.txt`.
+- Content inspection:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- Smoke evidence reused from the immediately preceding verified run:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-pcfilestream-regular-e0b61a98-d470-4b78-8af9-975ef5ec7f03.log`.
+- No runtime code changed in this classification batch.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage file:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this classification note.
+   Completion standard: only `CONTINUATION_GUIDE.md` is staged and pushed.
+2. Decide the next smallest code boundary.
+   Completion standard: choose between a VFS platform-prefix fix or content-prep/RPF extraction tooling, with the reason written in this guide before editing.
+3. If choosing VFS platform-prefix fix, write a static check first.
+   Completion standard: `platform:/rain.dds` and `platform:/data/TIMECYC.DAT` must not resolve to the `game/xbox360` directory or to `common/data` through the generic `data/` mapping.
+4. If choosing content-prep/RPF extraction, locate or generate the AES key and test extraction outside the runtime first.
+   Completion standard: a concrete requested file such as `data/timecycle.dat`, `data/loadingscreens_360.dat`, or a platform texture is extracted to a regular file and can be opened by the existing FileStream boundary.
+
+Next stage entry condition:
+
+- Start by choosing the VFS platform-prefix correction unless an AES key/content extraction path becomes available first.
+- Keep runtime RPF extraction out of the app until the encrypted archive path is proven outside the runtime.
