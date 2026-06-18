@@ -2167,3 +2167,75 @@ Next stage entry condition:
 
 - Resume at Windows VFS/content-layout stabilization with visible preflight evidence. The highest-value next step is to obtain or generate the complete extracted `game/xbox360/textures` layout before chasing resource-path misses as runtime bugs.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 62: ReXGlue NullDevice VFS Boundary
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated implementations and ReXGlue runtime behavior as the reference.
+- Keep Switch frozen as the verified LibertyRecompExeFs / NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+- Do not treat nullable guest vtable dispatch diagnostics as blockers without source/register evidence that the null is corrupt state.
+
+Completed in this batch:
+
+- Re-read the current audit guide, ReXGlue Function Overrides / Generated Code Structure / Virtual File System wiki pages, and confirmed the built ReXGlue CLI reports `0.8.1.32-dev.gf22cd9d`.
+- Corrected `sub_82300C78` from `PPC_FUNC` to `PPC_FUNC_IMPL` so the existing tracing wrapper actually overrides the generated weak public alias while still delegating to generated `__imp__sub_82300C78`.
+- Verified the link map now resolves public `sub_82300C78` to `imports.cpp.obj` and keeps `__imp__sub_82300C78` in `LibertyRecompLib:gta4_recomp.12.cpp.obj`.
+- Confirmed the old `sub_827DB338` bypass remains inactive; public `sub_827DB338` still resolves to generated `gta4_recomp.52.cpp.obj`. Do not enable that stale non-blocking bypass without a fresh root-cause trace.
+- Reclassified the fresh `82300D28`, `827DB388..827DB3F4`, and `82121160` missing-function entries as null guest vtable/service slots that are logged and then continue, matching the earlier null-dispatch diagnostic stage.
+- Implemented a ReXGlue-style VFS null-device classifier for `\Device\Harddisk0\Partition0`, `\Device\Harddisk0\Cache0`, and `\Device\Harddisk0\Cache1`.
+- `VFS::Exists()` now treats those paths as successful zero-byte virtual entries; `VFS::GetFileSize()` returns `0`; `VFS::Resolve()` logs `[VFS] NULL DEVICE` and does not return a fake host filesystem path.
+- This aligns the legacy LibertyRecomp VFS with ReXGlue's NullDevice model without creating a fake host file or changing raw RPF/content extraction policy.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp LibertyRecomp/kernel/vfs.h LibertyRecomp/kernel/vfs.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remain: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, existing `ctx.lr` printf format warning, and the existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- First bounded smoke after the `sub_82300C78` ABI correction:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-sub82300-dd3e9036-9613-4e44-9c5e-31b06e1d9402.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-sub82300-99516b9e-ac2a-408a-a31b-865e018c2cbf.log`
+  - result: killed intentionally at the 35-second bound, `SUB82300_COUNT=2`, `MISSING_FUNC_COUNT=11`, `VEH_COUNT=0`.
+- Final bounded smoke after the VFS NullDevice change:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-nulldevice-954a5ba1-ac34-475b-8949-aa4ebf86db8b.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-nulldevice-423395bb-c57c-4e22-a9c3-096d1d886092.log`
+  - result: killed intentionally at the 35-second bound, `NULL_DEVICE_COUNT=1`, `PARTITION0_NOT_FOUND_COUNT=0`, `SUB82300_COUNT=2`, `MISSING_FUNC_COUNT=11`, `VEH_COUNT=0`.
+- Temporary `portable.txt` and the temporary `game` junction to `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)` were removed after each smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `LibertyRecomp/kernel/vfs.cpp`,
+  `LibertyRecomp/kernel/vfs.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Continue VFS/content-layout stabilization from the verified NullDevice boundary.
+   Completion standard: do not revisit `Partition0` as a normal missing file unless a new log contradicts the NullDevice classification.
+2. Trace the remaining `platform:/textures/*` misses against the real content layout and RPF extraction requirements.
+   Completion standard: identify whether `fonts`, `buttons_360`, `hud`, `skydome`, and `fx_Rain` require a completed extracted `xbox360/textures` tree, raw RPF extraction, or a specific embedded fallback.
+3. Trace `common:/DATA/LOADINGSCREENS_360.DAT` separately from the raw HDD null-device path.
+   Completion standard: map whether this should resolve through `common/` after extraction or whether the current wrapper returns before using the VFS result.
+4. Keep wrapper changes ReXGlue-first.
+   Completion standard: if another project-side wrapper is involved, confirm the generated `__imp__` implementation and link map ownership before editing.
+5. Rebuild and run a bounded smoke after the next minimal behavior change.
+   Completion standard: Windows build succeeds and smoke either resolves/reclassifies one content path blocker or produces a clearly mapped next blocker.
+6. Commit and push the verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: stage only scoped files, commit, push, and leave unrelated dirty entries untouched.
+
+Next stage entry condition:
+
+- Resume at Windows VFS/content-layout bring-up after the NullDevice boundary. The active blockers are incomplete `xbox360/textures` extraction / raw RPF extraction preconditions and `common:/DATA/LOADINGSCREENS_360.DAT` resolution.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.

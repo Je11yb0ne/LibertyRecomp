@@ -62,7 +62,14 @@ namespace VFS
      * Check if a guest path is a directory.
      */
     bool IsDirectory(const std::string& guestPath);
-    
+
+    /**
+     * Check if a guest path is handled by the Xbox harddisk null-device model.
+     * ReXGlue treats \Device\Harddisk0\Partition0, Cache0, and Cache1 as
+     * successful zero-byte virtual entries rather than real host files.
+     */
+    bool IsNullDevicePath(const std::string& guestPath);
+
     /**
      * Get the file size for a guest path (0 if not found or is directory).
      */

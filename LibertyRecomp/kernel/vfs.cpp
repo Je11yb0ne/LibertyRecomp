@@ -125,7 +125,44 @@ namespace VFS
         
         return result;
     }
-    
+
+    static bool IsNullDevicePathNormalized(std::string_view normalized)
+    {
+        while (!normalized.empty() && normalized.front() == '/')
+        {
+            normalized.remove_prefix(1);
+        }
+
+        constexpr std::string_view nullPrefixes[] =
+        {
+            "device/harddisk0/partition0",
+            "device/harddisk0/cache0",
+            "device/harddisk0/cache1",
+        };
+
+        for (const std::string_view prefix : nullPrefixes)
+        {
+            if (normalized == prefix)
+            {
+                return true;
+            }
+
+            if (normalized.size() > prefix.size() &&
+                normalized.starts_with(prefix) &&
+                normalized[prefix.size()] == '/')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool IsNullDevicePath(const std::string& guestPath)
+    {
+        return IsNullDevicePathNormalized(NormalizePath(guestPath));
+    }
+
     // Comprehensive VFS file request logging - logs ALL requests
     static int s_resolveCount = 0;
     
@@ -143,10 +180,18 @@ namespace VFS
         
         // COMPREHENSIVE LOGGING: Log ALL file requests with full details
         // This helps trace exactly what files the game is requesting
-        printf("[VFS] Resolve #%d: '%s' -> normalized='%s' stripped='%s'\n", 
+        printf("[VFS] Resolve #%d: '%s' -> normalized='%s' stripped='%s'\n",
                s_resolveCount, guestPath.c_str(), normalized.c_str(), stripped.c_str());
         fflush(stdout);
-        
+
+        if (IsNullDevicePathNormalized(normalized))
+        {
+            g_stats.cacheHits++;
+            printf("[VFS] NULL DEVICE: '%s' handled as zero-byte virtual entry\n", guestPath.c_str());
+            fflush(stdout);
+            return {};
+        }
+
         // Check path mappings first
         for (const auto& mapping : g_pathMappings)
         {
@@ -248,6 +293,11 @@ namespace VFS
     
     bool Exists(const std::string& guestPath)
     {
+        if (IsNullDevicePath(guestPath))
+        {
+            return true;
+        }
+
         auto resolved = Resolve(guestPath);
         if (resolved.empty())
         {
@@ -260,6 +310,11 @@ namespace VFS
     
     bool IsDirectory(const std::string& guestPath)
     {
+        if (IsNullDevicePath(guestPath))
+        {
+            return false;
+        }
+
         auto resolved = Resolve(guestPath);
         if (resolved.empty())
         {
@@ -272,6 +327,11 @@ namespace VFS
     
     uint64_t GetFileSize(const std::string& guestPath)
     {
+        if (IsNullDevicePath(guestPath))
+        {
+            return 0;
+        }
+
         auto resolved = Resolve(guestPath);
         if (resolved.empty())
         {

@@ -11746,7 +11746,7 @@ PPC_FUNC(sub_8226CB50) {
 
 // Hook sub_82300C78 - call the current generated implementation with tracing.
 extern "C" void __imp__sub_82300C78(PPCContext& ctx, uint8_t* base);
-PPC_FUNC(sub_82300C78) {
+PPC_FUNC_IMPL(sub_82300C78) {
     static int s_count = 0;
     ++s_count;
     printf("[sub_82300C78] #%d ENTER r3=0x%08X - calling generated implementation\n", s_count, ctx.r3.u32);
