@@ -7722,10 +7722,9 @@ PPC_FUNC(sub_822C1A30) {
         // Store status byte = 1 (initialized successfully)
         PPC_STORE_U8(STREAM_STATUS_ADDR, 1);
 
-        // Zero the stream memory pool (0x82000000-0x82020000)
-        // This is critical - prevents garbage vtable pointers
-        LOG_WARNING("[INIT] sub_822C1A30 zeroing stream pool 0x82000000-0x82020000 (128 KB)");
-        memset(g_memory.Translate(0x82000000), 0, 0x20000);
+        // Do not clear 0x82000000-0x82020000 here. The loaded XEX owns this
+        // range and it contains live data/vtables needed after initialization.
+        LOG_WARNING("[INIT] sub_822C1A30 preserving XEX data range 0x82000000-0x82020000");
 
         s_initialized = true;
         LOG_WARNING("[INIT] sub_822C1A30 synthetic stream.ini applied successfully");

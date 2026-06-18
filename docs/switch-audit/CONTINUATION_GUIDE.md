@@ -2551,3 +2551,160 @@ Next stage entry condition:
 
 - Resume at ReXGlue vtable/data restoration investigation, not at generic `MISSING-FUNC` counting.
 - The next decision is whether the zero vtable slots are expected guest null slots, missing generated vtable entries, or missing image/data materialization in the legacy Windows bootstrap.
+
+## 2026-06-18 Windows Continuation 67: VTable Clear Source Isolated
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up first, with ReXGlue generated code and runtime behavior as the source of truth.
+- Keep Switch frozen at LibertyRecompExeFs / NSP-like pre-guest baseline unless explicitly testing Switch.
+- Do not count `MISSING-FUNC` entries as wrapper work until guest memory/data mutation has been proven.
+
+Completed in this batch:
+
+- Proved the watched vtable words are nonzero in the original GTA IV `default.xex` image:
+  - `0x82010F0C`, `0x8200B62C`, `0x8201AA50`, `0x82018F6C`, and `0x82001488` all contain nonzero words in the decrypted/expanded XEX image.
+- Added bounded diagnostics around loader and boot boundaries:
+  - `LdrLoadModule after image copy` and `LdrLoadModule after side effects` still show nonzero vtable words.
+  - `sub_829A7EA8` enter/exit still shows nonzero vtable words.
+  - `sub_829A7DC8` enter/exit still shows nonzero vtable words.
+  - `sub_8218BEA8 wrapper enter` still shows nonzero vtable words.
+- Added write-side instrumentation:
+  - ReXGlue `PPC_STORE_*` / `PPC_MM_STORE_*` watched-store logging.
+  - Liberty `rexcrt_memcpy`, `rexcrt_memset`, and `rexcrt_XMemCpy` watched-native-write logging.
+  - Smoke showed `VTBL_STORE_COUNT=0` and `VTBL_NATIVE_WRITE_COUNT=0`, so the clear bypassed both paths.
+- Added Windows page-protection watchpoint on the watched vtable pages, armed after `sub_8218BE28 exit #819`.
+- Fresh smoke caught the first write:
+  - `first-zero stage=sub_8218BE28 enter #847`.
+  - `[VTBL-WATCH] first write fault guest=0x82001000`.
+  - Faulting native PC resolved to `libvcruntime:memset`.
+  - Stack return address `rva=0x00067AF6` mapped via `LibertyRecomp.map` to `sub_822C1A30` in `imports.cpp.obj`.
+  - Disassembly around `0x140067add` shows `sub_822C1A30` calling `memset(base + 0x82000000, 0, 0x20000)` and returning at `0x140067af6`.
+- Current root cause:
+  - The synthetic stream initialization wrapper `sub_822C1A30` clears `0x82000000-0x82020000`.
+  - That range is not a safe synthetic stream pool in the loaded GTA IV image; it contains live XEX data/vtables used after `sub_8218BEA8` starts.
+  - The clear turns the vtable words into zero and causes the current 11-entry `MISSING-FUNC` cluster.
+- Reference recorded from OZORDI/XenonRecomp commit `207253d67cdef67235805d595999fa0a2e4fcbd9` (`fix/memory-leak-static-variables`):
+  - Commit title: `Fix memory leak: remove static from local variables in Recompile()`.
+  - It removes `static` from `std::unordered_set<size_t> labels`, `std::string tempString`, and `std::vector<uint8_t> temp` in XenonRecomp `recompiler.cpp`.
+  - Reason: static local containers persist across function recompiles and keep growing during GTA IV-scale recompilation, causing unbounded memory use.
+  - Future use: when running or adapting XenonRecomp/ReXGlue codegen for GTA IV-scale outputs, audit any static local `std::string`, `std::vector`, or `std::unordered_set` used as scratch buffers inside per-function recompilation loops.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp LibertyRecomp/main.cpp LibertyRecompLib/rexglue_runtime_stubs.cpp glue/rexglue-sdk-main/include/rex/ppc/memory.h` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remained: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, Microsoft-goto warnings, existing `ctx.lr` printf format warning, and existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-vtbl-stack-78795e19-2075-4b33-9468-98553aa817f0.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-vtbl-stack-78795e19-2075-4b33-9468-98553aa817f0.log`
+- Smoke result:
+  killed intentionally at the bounded smoke timeout. Counts included `MISSING_FUNC_COUNT=11`, and the watchpoint produced the caller stack evidence above.
+- Temporary `portable.txt` and the temporary executable-root `game` junction were removed after the smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `LibertyRecomp/main.cpp`,
+  `LibertyRecompLib/rexglue_runtime_stubs.cpp`,
+  `glue/rexglue-sdk-main/include/rex/ppc/memory.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `docs/dev/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Apply the minimal root-cause fix in `sub_822C1A30`.
+   Completion standard: preserve synthetic `stream.ini` config writes, but do not clear `0x82000000-0x82020000`.
+2. Rebuild and run bounded smoke.
+   Completion standard: `MISSING_FUNC_COUNT` from the zeroed-vtable cluster drops or changes to a later blocker, and no precise exception keywords appear.
+3. Remove or lower the temporary page-watch/store-watch diagnostics after the fix is proven.
+   Completion standard: final committed runtime code does not carry expensive global store logging unless a follow-up investigation still needs it.
+4. Rebuild, bounded smoke, update this guide, commit, push, and continue.
+   Completion standard: fresh verification is recorded and the branch is pushed to `origin/codex/switch-audit-20260615`.
+
+Next stage entry condition:
+
+- Start with the `sub_822C1A30` clear removal, then verify whether the current zero-vtable `MISSING-FUNC` cluster is gone before mapping any new blocker.
+
+## 2026-06-18 Windows Continuation 68: VTable Clear Fixed And Probe Cleanup
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up first, using ReXGlue generated `__imp__` implementations as the source of truth and local wrappers only for audited platform glue.
+- Keep Switch frozen at LibertyRecompExeFs / NSP-like pre-guest baseline unless explicitly testing Switch.
+- Do not treat the prior zero-vtable `MISSING-FUNC` cluster as wrapper debt anymore; it was caused by a synthetic memory clear.
+
+Completed in this batch:
+
+- Applied the root-cause fix in `LibertyRecomp/kernel/imports.cpp`.
+  - `sub_822C1A30` still writes the synthetic `stream.ini` config values.
+  - It no longer clears `0x82000000-0x82020000`.
+  - The range is preserved because it belongs to the loaded GTA IV XEX image and contains live data/vtables.
+- Removed temporary heavy diagnostics after proving the fix:
+  - ReXGlue `PPC_STORE_*` / `PPC_MM_STORE_*` watched-store logging was removed.
+  - Liberty runtime `rexcrt_memcpy`, `rexcrt_memset`, and `rexcrt_XMemCpy` watched-native-write logging was removed.
+  - Windows page-protection vtable watchpoint and loader vtable dumps were removed.
+- Final scoped code diff is only the `sub_822C1A30` clear removal.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp LibertyRecomp/main.cpp LibertyRecompLib/rexglue_runtime_stubs.cpp glue/rexglue-sdk-main/include/rex/ppc/memory.h` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecomp`
+- Build result:
+  the long compile completed in the background after the first tool timeout; a fresh follow-up invocation returned `ninja: no work to do`.
+- Clean bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-preserve-vtbl-clean-3883b6ba-68c5-48bf-833e-146d4092516e.log`
+- Clean bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-preserve-vtbl-clean-3883b6ba-68c5-48bf-833e-146d4092516e.log`
+- Smoke result:
+  killed intentionally at the 45 second bounded smoke timeout.
+  Counts: `MISSING-FUNC=0`, `MISSING_FUNC=0`, `VTBL-TRACE=0`, `VTBL-WATCH=0`, `VTBL-STORE=0`, `VTBL-NATIVE-WRITE=0`, `first-zero=0`, `ASSERT_CB=0`, `ASSERTCB=0`, `TRAP_CONTEXT=0`, `Access violation=0`, `C0000005=0`, `C00000FD=0`, `Unhandled exception=0`, `Exception 0x=0`.
+  The run reached `sub_8218BE28 #2500`, `sub_82125478 #1 ENTER`, and `sub_82125478 #1 EXIT`.
+  Current visible next blocker class: graphics/resource bring-up, with `volkInitialize failed with error code 0xFFFFFFFD` and `Graphics interface creation returned null` appearing once.
+- Temporary `portable.txt` and the temporary executable-root `game` junction were removed after smoke.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`,
+  `.planning/`,
+  `docs/dev/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push the vtable-clear root-cause fix.
+   Completion standard: only `imports.cpp` and this guide are staged, commit message states the audited boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Classify the graphics interface creation failure.
+   Completion standard: identify whether `Graphics interface creation returned null` is host graphics configuration, backend selection, or a missing ReXGlue/Xenia GPU bridge side effect.
+3. Trace the resource/VFS misses now visible past the old vtable blocker.
+   Completion standard: explain why `platform:/rain.dds` and `platform:/rainanim.dds` return 0, and determine whether they should map through the real content root or stay optional.
+4. Run another bounded smoke after the next minimal fix.
+   Completion standard: no precise exception keywords, no reintroduced `MISSING_FUNC`, and the next blocker is classified with source/register evidence.
+
+Next stage entry condition:
+
+- Resume from graphics/resource bring-up after the vtable clear fix is committed and pushed.
+- Do not reintroduce global ReXGlue memory-store instrumentation unless a new root-cause investigation specifically requires it.
