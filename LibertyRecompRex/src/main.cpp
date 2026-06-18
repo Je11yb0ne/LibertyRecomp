@@ -21,6 +21,11 @@ namespace {
 
 constexpr const char* kDefaultXexVirtualPath = "game:\\default.xex";
 
+struct CommandLineOptions {
+    std::filesystem::path game_root;
+    bool audit_load_xex = false;
+};
+
 const std::uint8_t* checked_range(const std::vector<std::uint8_t>& data,
                                   const std::size_t offset,
                                   const std::size_t size) {
@@ -143,6 +148,29 @@ std::filesystem::path executable_folder(const char* argv0) {
         return std::filesystem::current_path();
     }
     return path.parent_path();
+}
+
+CommandLineOptions parse_command_line(int argc, char** argv,
+                                      const std::filesystem::path& exe_dir) {
+    CommandLineOptions options;
+    options.game_root = exe_dir / "assets";
+
+    bool game_root_set = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i] != nullptr ? argv[i] : "";
+        if (arg == "--audit-load-xex") {
+            options.audit_load_xex = true;
+            continue;
+        }
+
+        if (!game_root_set) {
+            options.game_root = std::filesystem::path(arg);
+            game_root_set = true;
+            continue;
+        }
+    }
+
+    return options;
 }
 
 bool preflight_xex_metadata(const std::filesystem::path& host_path,
@@ -333,8 +361,8 @@ bool preflight_default_xex(const std::filesystem::path& game_root, rex::Runtime&
 
 int main(int argc, char** argv) {
     const auto exe_dir = executable_folder(argc > 0 ? argv[0] : "LibertyRecompRex.exe");
-    const auto game_root =
-        argc > 1 ? std::filesystem::path(argv[1]) : exe_dir / "assets";
+    const auto options = parse_command_line(argc, argv, exe_dir);
+    const auto game_root = options.game_root;
     const auto log_path = exe_dir / "LibertyRecompRex.log";
     const auto game_root_string = game_root.string();
     const auto log_path_string = log_path.string();
@@ -345,6 +373,7 @@ int main(int argc, char** argv) {
     REXLOG_INFO("LibertyRecompRex sidecar starting");
     REXLOG_INFO("  Game root: {}", game_root_string);
     REXLOG_INFO("  Log path:  {}", log_path_string);
+    REXLOG_INFO("  Audit LoadXexImage: {}", options.audit_load_xex ? "yes" : "no");
 
     rex::RuntimeConfig config;
     config.tool_mode = true;
@@ -371,6 +400,23 @@ int main(int argc, char** argv) {
         runtime.Shutdown();
         rex::ShutdownLogging();
         return 3;
+    }
+
+    if (options.audit_load_xex) {
+        REXLOG_INFO("XEX load audit: calling LoadXexImage({}) without LaunchModule",
+                    kDefaultXexVirtualPath);
+        const rex::X_STATUS load_status = runtime.LoadXexImage(kDefaultXexVirtualPath);
+        if (XFAILED(load_status)) {
+            REXLOG_ERROR("XEX load audit: LoadXexImage failed with status {:08X}",
+                         load_status);
+            runtime.Shutdown();
+            rex::ShutdownLogging();
+            return 4;
+        }
+        REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
+                    load_status);
+    } else {
+        REXLOG_INFO("XEX load audit: skipped; pass --audit-load-xex to cross module-load boundary");
     }
 
     REXLOG_INFO("ReXGlue runtime setup reached tool-mode pre-guest boundary");

@@ -3716,3 +3716,87 @@ Next stage entry condition:
 - Continue with a controlled `LoadXexImage()` design or a no-code experimental gate.
 - Do not call `LaunchModule()`.
 - Keep generated sources, thirdparty submodules, and Switch packaging untouched.
+
+## 2026-06-19 Windows Continuation 81: ReXGlue Controlled LoadXexImage Gate
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue Windows-first ReXGlue takeover through the separate `LibertyRecompRex` sidecar.
+- Cross the ReXGlue module materialization boundary only through an explicit audit flag.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Added sidecar command-line parsing in `LibertyRecompRex/src/main.cpp`.
+- The first non-flag argument remains the game root; the default remains `<exe>\assets`.
+- Added `--audit-load-xex` as an explicit opt-in gate.
+- The default sidecar path logs `Audit LoadXexImage: no`, runs VFS/XEX/metadata preflight, logs that the XEX load audit is skipped, and stops at the pre-guest tool-mode boundary.
+- The opt-in path logs `Audit LoadXexImage: yes`, calls `runtime.LoadXexImage("game:\\default.xex")`, reports the load status, then still skips `LaunchModule()`.
+- The opt-in path is not side-effect free:
+  - ReXGlue reads/materializes the XEX image,
+  - creates import symbols for `xam` with `87` imports,
+  - patches/imports `xboxkrnl` with `160` imports,
+  - reports the existing missing optional `default.xexp` warning,
+  - reports the existing unimplemented variable import warning for `xboxkrnl:0x1b (ExThreadObjectType)`,
+  - creates the kernel dispatch `XThread` host object,
+  - starts the ReXGlue kernel dispatch host thread through `KernelState::SetExecutableModule()`.
+- Guest main launch remains disabled because the sidecar never calls `LaunchModule()`.
+- This is a module materialization audit only, not a gameplay or playable milestone.
+
+Fresh verification:
+
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar smoke command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; log assertions confirmed `Audit LoadXexImage: no`, `XEX metadata preflight:`, `XEX load audit: skipped`, and no `Loading XEX image:` line.
+- Opt-in LoadXex audit command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in LoadXex audit result:
+  exit code `0`; log assertions confirmed `Audit LoadXexImage: yes`, `XEX load audit: calling LoadXexImage`, `XEX image loaded successfully`, `XEX load audit: LoadXexImage returned 00000000; LaunchModule skipped`, and no `Launching module` line.
+- Sidecar log:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.log`
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Whitespace verification command:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecompRex/src/main.cpp docs/switch-audit/CONTINUATION_GUIDE.md docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`
+- Whitespace verification result:
+  no whitespace errors; Git only reported the existing LF-to-CRLF warning for `LibertyRecompRex/src/main.cpp`.
+- No Switch build was run in this batch because Switch remains paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this controlled `LoadXexImage()` gate.
+   Completion standard: only the allowed current-stage files are staged, commit message states the Windows/ReXGlue module materialization boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Add post-`LoadXexImage()` module-state logging without launching the guest main thread.
+   Completion standard: sidecar logs available executable-module/image/import state after `LoadXexImage()` returns, still without `LaunchModule()`.
+3. Classify the temporary sidecar import bridge before guest execution.
+   Completion standard: record whether the next path is a complete non-codegen-only ReXGlue kernel build or real sidecar export implementations.
+4. Keep Vulkan-first graphics work behind the module/import boundary.
+   Completion standard: no runtime graphics backend is enabled until module materialization and export coverage are stable.
+
+Next stage entry condition:
+
+- Start with post-load module-state diagnostics, still behind `--audit-load-xex`.
+- Do not call `LaunchModule()`.
+- Do not treat the temporary import bridge as a real runtime implementation.
+- Keep generated sources, thirdparty submodules, and Switch packaging untouched.

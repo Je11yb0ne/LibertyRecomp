@@ -142,7 +142,8 @@ boundary, still before XEX load or guest launch:
 - The legacy `LibertyRecomp` target still builds in the same Windows build
   directory.
 
-Phase 3 has started with a content/XEX preflight only; it still does not call
+Phase 3 has advanced from content/XEX preflight to a controlled
+`LoadXexImage()` audit gate. The default sidecar path still does not call
 `LoadXexImage()`:
 
 - After `Runtime::Setup(...)`, the sidecar resolves `game:\default.xex` through
@@ -158,8 +159,19 @@ Phase 3 has started with a content/XEX preflight only; it still does not call
   `PPCImageConfig`.
 - The sidecar logs the VFS/host result and then stops at the same tool-mode
   pre-guest boundary.
-- Real XEX loading, module materialization, import patching, and launch remain
-  future work.
+- Passing `--audit-load-xex` explicitly crosses the ReXGlue module materialize
+  boundary without calling `LaunchModule()`.
+- The opt-in audit currently loads `game:\default.xex`, materializes the guest
+  image, parses import libraries, patches variable imports, creates symbols for
+  `xam` with `87` imports and `xboxkrnl` with `160` imports, and returns
+  status `00000000`.
+- The opt-in audit logs the existing missing optional patch file warning for
+  `default.xexp` and the existing unimplemented variable import warning for
+  `xboxkrnl:0x1b (ExThreadObjectType)`.
+- `LoadXexImage()` still starts ReXGlue's kernel dispatch host thread through
+  `KernelState::SetExecutableModule()`. It is not a no-side-effect preflight.
+- Guest main launch remains disabled because `LaunchModule()` is not called.
+- This is a module materialization audit only, not a playable state.
 
 `LoadXexImage()` side-effect audit decision:
 
@@ -177,9 +189,13 @@ Phase 3 has started with a content/XEX preflight only; it still does not call
   XEX header to system heap, fills loader data, and runs `OnLoad()`.
 - `KernelState::SetExecutableModule()` writes process/loader state and starts
   the kernel dispatch host thread.
-- Therefore the next boundary should be a sidecar-only XEX metadata preflight
-  using the host file/header buffer before deciding whether to cross into
-  `LoadXexImage()` guest-memory side effects.
+- That side-effect classification led to the now-verified sidecar-only XEX
+  metadata preflight using the host file/header buffer.
+- The current implementation only crosses this boundary when the user passes
+  `--audit-load-xex`. The normal smoke path continues to prove the safe
+  metadata/pre-guest boundary first.
+- The next boundary is post-`LoadXexImage()` module-state diagnostics while
+  still keeping `LaunchModule()` disabled.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -230,16 +246,19 @@ Tasks:
 
 1. Set `game_data_root` to the GTA IV asset/content directory.
 2. Let ReXApp/Runtime run `Setup()`.
-3. Confirm `LoadXexImage("game:\\default.xex")` succeeds.
+3. Confirm `LoadXexImage("game:\\default.xex")` succeeds behind the explicit
+   `--audit-load-xex` gate.
 4. If ReXApp's fixed default launch path is too restrictive, switch to a direct
    `rex::Runtime` sidecar only after recording why.
 
 Completion standard:
 
 - Runtime setup reaches post-setup logs.
-- `default.xex` loads from the expected `game:` path.
+- `default.xex` loads from the expected `game:` path when explicitly gated.
 - Failures are logged as missing content/import/config blockers, not silent
   crashes.
+- The default sidecar run still stops before module materialization.
+- The gated audit still does not call `LaunchModule()`.
 
 ### Phase 4: Launch And Minimal Override Migration
 
@@ -294,17 +313,21 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Create the sidecar target skeleton in an isolated, Windows-only way.
-   Completion standard: CMake sees the target without affecting Switch.
-2. Resolve `rex::runtime` target availability.
-   Completion standard: either the package provides it, or a local sidecar-only
-   compatibility link path is documented and verified.
-3. Build the sidecar without guest launch.
-   Completion standard: executable links, legacy target still builds.
-4. Attach existing generated GTA IV sources.
-   Completion standard: compile/link blockers are classified, not guessed.
-5. Decide Vulkan build mode for the sidecar.
-   Completion standard: configure flag and `OnPreSetup` policy are recorded.
+1. Commit and push the controlled `--audit-load-xex` gate.
+   Completion standard: only the sidecar and audit docs are staged, the commit
+   message states the ReXGlue module materialization boundary, and the current
+   codex branch is pushed.
+2. Add post-`LoadXexImage()` module-state logging without calling
+   `LaunchModule()`.
+   Completion standard: the sidecar logs the executable module/load status,
+   image base/size, entry point, import summary, and any public ReXGlue module
+   state available through stable APIs.
+3. Classify the temporary import bridge before guest launch.
+   Completion standard: decide between a full non-codegen-only ReXGlue kernel
+   build and real sidecar export implementations, with the reason recorded.
+4. Keep Vulkan-first work as an explicit later boundary.
+   Completion standard: do not enable runtime graphics until the module
+   materialization/import bridge boundary is stable.
 
 ## Entry Condition For Switch Return
 
