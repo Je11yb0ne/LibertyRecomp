@@ -349,6 +349,55 @@ namespace
     static std::unordered_map<uint32_t, NtFileHandle*> g_ntFileHandles;
     static std::unordered_map<uint32_t, NtDirHandle*> g_ntDirHandles;
     static std::unordered_map<uint32_t, NtVirtFileHandle*> g_ntVirtFileHandles;
+    // Host-side PC file handles. NtFileHandle owns std::fstream, so these
+    // objects must stay in native host memory instead of guest/physical heap.
+    static std::unordered_map<uint32_t, NtFileHandle*> s_pcFileHandleTable;
+    static uint32_t s_nextPcFileHandle = 0x50000001;
+    static std::mutex s_pcFileHandleMutex;
+
+    static uint32_t RegisterPcHandle(NtFileHandle* hFile)
+    {
+        std::lock_guard<std::mutex> lock(s_pcFileHandleMutex);
+        const uint32_t handle = s_nextPcFileHandle++;
+        s_pcFileHandleTable.emplace(handle, hFile);
+        return handle;
+    }
+
+    static NtFileHandle* GetPcHandle(uint32_t handle)
+    {
+        std::lock_guard<std::mutex> lock(s_pcFileHandleMutex);
+        auto it = s_pcFileHandleTable.find(handle);
+        return it != s_pcFileHandleTable.end() ? it->second : nullptr;
+    }
+
+    static void ClosePcHandle(uint32_t handle)
+    {
+        NtFileHandle* hFile = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(s_pcFileHandleMutex);
+            auto it = s_pcFileHandleTable.find(handle);
+            if (it != s_pcFileHandleTable.end())
+            {
+                hFile = it->second;
+                s_pcFileHandleTable.erase(it);
+            }
+        }
+
+        if (hFile)
+        {
+            if (hFile->stream.is_open())
+                hFile->stream.close();
+            delete hFile;
+        }
+    }
+
+    static NtFileHandle* ResolveNativeFileHandle(uint32_t handle)
+    {
+        if (NtFileHandle* pcHandle = GetPcHandle(handle))
+            return pcHandle;
+        auto it = g_ntFileHandles.find(handle);
+        return it != g_ntFileHandles.end() ? it->second : nullptr;
+    }
 
     // PM4 Packet Types (Xbox 360 GPU command buffer format)
     enum PM4PacketType {
@@ -8879,46 +8928,20 @@ static void StorageDevice_ReadFileVtable5(PPCContext& ctx, uint8_t* base) {
     LOGF_WARNING("[vtable[5]] ReadFile #{} device=0x{:08X} handle=0x{:08X} buffer=0x{:08X} size={}",
                  s_count, deviceAddr, fileHandle, bufferAddr, sizeToRead);
 
-    // Use the existing RPF reading infrastructure
-    auto it = g_ntFileHandles.find(fileHandle);
-    if (it == g_ntFileHandles.end()) {
+    NtFileHandle* hFile = ResolveNativeFileHandle(fileHandle);
+    if (!hFile || hFile->magic != kNtFileHandleMagic || !hFile->stream.is_open()) {
         LOGF_WARNING("[vtable[5]] Invalid file handle 0x{:08X}", fileHandle);
         ctx.r3.s32 = -1;
         return;
     }
 
-    NtFileHandle* hFile = it->second;
     uint8_t* hostBuffer = base + bufferAddr;
-
-    // For shader files in common.rpf, we need to read from the correct offset
-    // The game expects to read shader file headers starting with magic "rgxa" (0x61786772)
-    // Use ReadFromBestRpf which handles offset-based reading from RPF files
-    std::string rpfName;
-    uint32_t bytesRead = 0;
-
-    // Try to read using the RPF offset system
-    // For shader validation, the game typically reads from offset 0 of the "file"
-    // which corresponds to specific offsets in common.rpf
-    const uint32_t chosen = ReadFromBestRpf(fileHandle, hostBuffer, sizeToRead, 0, s_count, rpfName);
-
-    if (chosen != UINT32_MAX) {
-        // ReadFromBestRpf succeeded, data is already in hostBuffer
-        // Return the size that was requested (ReadFromBestRpf always reads full size)
-        LOGF_WARNING("[vtable[5]] Read {} bytes from RPF '{}' at offset 0", sizeToRead, rpfName);
-        ctx.r3.s32 = static_cast<int32_t>(sizeToRead);
-        return;
-    }
-
-    // Fallback: direct file stream read
     hFile->stream.read(reinterpret_cast<char*>(hostBuffer), sizeToRead);
-    bytesRead = static_cast<uint32_t>(hFile->stream.gcount());
+    const uint32_t bytesRead = static_cast<uint32_t>(hFile->stream.gcount());
 
     LOGF_WARNING("[vtable[5]] Direct read {} bytes from handle 0x{:08X}", bytesRead, fileHandle);
-
     ctx.r3.s32 = static_cast<int32_t>(bytesRead);
 }
-
-// =============================================================================
 // StorageDevice_CloseFile - vtable[10] implementation
 // =============================================================================
 // Called by sub_827E87A0 to close a file and cleanup resources
@@ -8937,21 +8960,23 @@ static void StorageDevice_CloseFile(PPCContext& ctx, uint8_t* base) {
     LOGF_WARNING("[vtable[10]] CloseFile #{} device=0x{:08X} handle=0x{:08X}",
                  s_count, deviceAddr, fileHandle);
 
-    // Close the file handle if it exists
+    if (GetPcHandle(fileHandle)) {
+        ClosePcHandle(fileHandle);
+        LOGF_WARNING("[vtable[10]] Closed PC file handle 0x{:08X}", fileHandle);
+        return;
+    }
+
     auto it = g_ntFileHandles.find(fileHandle);
     if (it != g_ntFileHandles.end()) {
         NtFileHandle* hFile = it->second;
-        if (hFile->stream.is_open()) {
+        if (hFile && hFile->stream.is_open()) {
             hFile->stream.close();
         }
-        // Note: Don't delete the handle yet as it might be reused
-        LOGF_WARNING("[vtable[10]] Closed file handle 0x{:08X}", fileHandle);
+        LOGF_WARNING("[vtable[10]] Closed NT file handle 0x{:08X}", fileHandle);
     } else {
         LOGF_WARNING("[vtable[10]] Handle 0x{:08X} not found (already closed?)", fileHandle);
     }
 }
-
-// =============================================================================
 // StorageDevice_GetFileInfo - vtable[19] implementation
 // =============================================================================
 // Called by shader loading code to get file metadata
@@ -10298,14 +10323,86 @@ PPC_FUNC(sub_827E8180) {
         return;
     }
 
-    // For other files, try to use VFS to check existence
-    // For now, return 0 to indicate file not found via this path
-    // The caller should have fallback mechanisms
-    printf("[sub_827E8180] #%d -> returning 0 (not via storage device path)\n", s_count);
-    fflush(stdout);
-    ctx.r3.u32 = 0;  // Not found via storage device path
-}
+    // For other files, open only concrete files already exposed through VFS.
+    std::string guestPath(pathBuf);
+    if (VFS::IsInitialized() && VFS::Exists(guestPath)) {
+        auto hostPath = VFS::Resolve(guestPath);
+        std::error_code fileEc;
+        if (!std::filesystem::is_regular_file(hostPath, fileEc)) {
+            printf("[sub_827E8180] #%d -> VFS RESOLVED NON-FILE: '%s' -> '%s'\n",
+                   s_count, pathBuf, hostPath.string().c_str());
+            fflush(stdout);
+            ctx.r3.u32 = 0;
+            return;
+        }
+        const uint64_t fileSize = VFS::GetFileSize(guestPath);
 
+        static uint32_t s_fileStreamPool = 0;
+        static uint32_t s_fileStreamIndex = 0;
+        static std::mutex s_fileStreamPoolMutex;
+        constexpr uint32_t kStreamSize = 64;
+        constexpr uint32_t kStreamPoolCount = 256;
+
+        uint32_t streamAddr = 0;
+        {
+            std::lock_guard<std::mutex> lock(s_fileStreamPoolMutex);
+            if (s_fileStreamPool == 0) {
+                void* hostPool = g_userHeap.AllocPhysical(kStreamSize * kStreamPoolCount, 16);
+                if (hostPool)
+                    s_fileStreamPool = g_memory.MapVirtual(hostPool);
+            }
+
+            if (s_fileStreamPool != 0) {
+                streamAddr = s_fileStreamPool + ((s_fileStreamIndex++ % kStreamPoolCount) * kStreamSize);
+                memset(g_memory.Translate(streamAddr), 0, kStreamSize);
+            }
+        }
+
+        if (streamAddr == 0) {
+            LOGF_WARNING("[sub_827E8180] #{} VFS FOUND but FileStream pool allocation failed for '{}'",
+                         s_count, pathBuf);
+            ctx.r3.u32 = 0;
+            return;
+        }
+
+        NtFileHandle* hFile = new (std::nothrow) NtFileHandle();
+        if (!hFile) {
+            ctx.r3.u32 = 0;
+            return;
+        }
+
+        hFile->stream.open(hostPath, std::ios::in | std::ios::binary);
+        if (!hFile->stream.is_open()) {
+            LOGF_WARNING("[sub_827E8180] #{} VFS FOUND but host open failed: '{}'",
+                         s_count, hostPath.string());
+            delete hFile;
+            ctx.r3.u32 = 0;
+            return;
+        }
+        hFile->path = hostPath;
+        hFile->isRpf = false;
+
+        const uint32_t fileHandle = RegisterPcHandle(hFile);
+        PPC_STORE_U32(streamAddr + 0, StorageConstants::PC_STORAGE_DEVICE_ADDR);
+        PPC_STORE_U32(streamAddr + 4, fileHandle);
+        PPC_STORE_U32(streamAddr + 8, 0);
+        PPC_STORE_U32(streamAddr + 12, 0);
+        PPC_STORE_U32(streamAddr + 16, 0);
+        PPC_STORE_U32(streamAddr + 20, 0);
+        PPC_STORE_U32(streamAddr + 24, 4096);
+        PPC_STORE_U32(streamAddr + 28, static_cast<uint32_t>(std::min<uint64_t>(fileSize, UINT32_MAX)));
+
+        printf("[sub_827E8180] #%d -> VFS FOUND: '%s' -> '%s' (%llu bytes) FileStream=0x%08X handle=0x%08X\n",
+               s_count, pathBuf, hostPath.string().c_str(), static_cast<unsigned long long>(fileSize), streamAddr, fileHandle);
+        fflush(stdout);
+        ctx.r3.u32 = streamAddr;
+        return;
+    }
+
+    printf("[sub_827E8180] #%d -> NOT FOUND via VFS: '%s'\n", s_count, pathBuf);
+    fflush(stdout);
+    ctx.r3.u32 = 0;
+}
 extern "C" void sub_827E8880(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_827E8880(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827E8880) {
@@ -12656,6 +12753,38 @@ PPC_FUNC(sub_827E8420)
         return;
     }
 
+    // PC FileStream created by sub_827E8180: read directly from the host-side synthetic handle.
+    if (streamPtr >= 0x00020000 && PPC_LOAD_U32(streamPtr + 0) == StorageConstants::PC_STORAGE_DEVICE_ADDR)
+    {
+        const uint32_t fileHandle = PPC_LOAD_U32(streamPtr + 4);
+        const uint32_t destAddr = ctx.r4.u32;
+        const int32_t bytesToRead = ctx.r5.s32;
+        NtFileHandle* hFile = GetPcHandle(fileHandle);
+        if (!hFile || hFile->magic != kNtFileHandleMagic || !hFile->stream.is_open() || destAddr == 0 || bytesToRead <= 0)
+        {
+            ctx.r3.s32 = -1;
+            return;
+        }
+
+        uint32_t filePos = PPC_LOAD_U32(streamPtr + 12);
+        const uint32_t fileSize = PPC_LOAD_U32(streamPtr + 28);
+        uint32_t toRead = static_cast<uint32_t>(bytesToRead);
+        if (fileSize != 0 && filePos < fileSize)
+            toRead = std::min<uint32_t>(toRead, fileSize - filePos);
+        else if (fileSize != 0 && filePos >= fileSize)
+            toRead = 0;
+
+        uint8_t* dest = static_cast<uint8_t*>(g_memory.Translate(destAddr));
+        hFile->stream.clear();
+        hFile->stream.seekg(filePos, std::ios::beg);
+        hFile->stream.read(reinterpret_cast<char*>(dest), toRead);
+        const uint32_t bytesRead = static_cast<uint32_t>(hFile->stream.gcount());
+        PPC_STORE_U32(streamPtr + 12, filePos + bytesRead);
+        PPC_STORE_U32(streamPtr + 16, 0);
+        PPC_STORE_U32(streamPtr + 20, 0);
+        ctx.r3.s32 = static_cast<int32_t>(bytesRead);
+        return;
+    }
     // Validate stream pointer is in valid guest memory range
     if (streamPtr < 0x80000000 || streamPtr >= 0x90000000)
     {
@@ -12719,142 +12848,116 @@ PPC_FUNC(sub_827E8420)
 }
 
 // =============================================================================
-// sub_827E7FA8 - Stream vtable function call (DEFENSIVE WRAPPER)
+// sub_827E7FC8 - Stream flush/seek for PC FileStreams
 // =============================================================================
-// This function loads a vtable from an object and calls a function at vtable+48.
-// The PAC crash occurs when the vtable or function pointer is corrupted.
-//
-// Original code flow:
-//   r11 = r3 (object pointer)
-//   r3 = [r11+0] (load vtable from object)
-//   r4 = [r11+4] (load context)
-//   r11 = [r3+0] (load vtable pointer from object)
-//   r11 = [r11+48] (load function pointer from vtable+48)
-//   call r11 (PAC CRASH HERE if pointer is invalid)
+extern "C" void sub_827E7FC8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827E7FC8(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_827E7FC8) {
+    const uint32_t streamPtr = ctx.r3.u32;
+    if (streamPtr != 0 && PPC_LOAD_U32(streamPtr + 0) == StorageConstants::PC_STORAGE_DEVICE_ADDR) {
+        const uint32_t fileHandle = PPC_LOAD_U32(streamPtr + 4);
+        NtFileHandle* hFile = GetPcHandle(fileHandle);
+        if (!hFile || !hFile->stream.is_open()) {
+            ctx.r3.s32 = -1;
+            return;
+        }
+
+        const uint32_t filePos = PPC_LOAD_U32(streamPtr + 12);
+        const uint32_t bufferCursor = PPC_LOAD_U32(streamPtr + 16);
+        const uint32_t newPos = filePos + bufferCursor;
+        hFile->stream.clear();
+        hFile->stream.seekg(newPos, std::ios::beg);
+        if (hFile->stream.fail()) {
+            hFile->stream.clear();
+            ctx.r3.s32 = -1;
+            return;
+        }
+
+        PPC_STORE_U32(streamPtr + 12, newPos);
+        PPC_STORE_U32(streamPtr + 16, 0);
+        PPC_STORE_U32(streamPtr + 20, 0);
+        ctx.r3.s32 = 0;
+        return;
+    }
+
+    __imp__sub_827E7FC8(ctx, base);
+}
+
+// =============================================================================
+// sub_827E87A0 - Stream close for PC FileStreams
+// =============================================================================
+extern "C" void sub_827E87A0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827E87A0(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_827E87A0) {
+    const uint32_t streamPtr = ctx.r3.u32;
+    if (streamPtr != 0 && PPC_LOAD_U32(streamPtr + 0) == StorageConstants::PC_STORAGE_DEVICE_ADDR) {
+        const uint32_t fileHandle = PPC_LOAD_U32(streamPtr + 4);
+        ClosePcHandle(fileHandle);
+        PPC_STORE_U32(streamPtr + 0, 0);
+        PPC_STORE_U32(streamPtr + 4, GUEST_INVALID_HANDLE_VALUE);
+        ctx.r3.s32 = 0;
+        return;
+    }
+
+    __imp__sub_827E87A0(ctx, base);
+}
+
+// =============================================================================
+// sub_827E7FA8 - GetSize Operation for PC FileStreams
 // =============================================================================
 extern "C" void sub_827E7FA8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_827E7FA8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_827E7FA8)
 {
-    static int s_callCount = 0;
-    static int s_validationFailures = 0;
-    s_callCount++;
-
-    // Get the object pointer from r3
-    uint32_t objectPtr = ctx.r3.u32;
-
-    // Validate object pointer
-    if (objectPtr == 0)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] NULL object pointer (call #{})", s_callCount);
-            s_validationFailures++;
-        }
-        // Return gracefully - set r3 to 0 to indicate failure
-        ctx.r3.u32 = 0;
+    const uint32_t streamPtr = ctx.r3.u32;
+    if (streamPtr == 0) {
+        ctx.r3.u64 = 0;
         return;
     }
 
-    // Check if object pointer is in valid guest memory range
-    if (objectPtr < 0x80000000 || objectPtr >= 0x90000000)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] Invalid object pointer 0x{:08X} (call #{})",
-                objectPtr, s_callCount);
-            s_validationFailures++;
-        }
-        // Return gracefully
-        ctx.r3.u32 = 0;
+    const uint32_t storageDevice = PPC_LOAD_U32(streamPtr + 0);
+    if (storageDevice == StorageConstants::PC_STORAGE_DEVICE_ADDR) {
+        ctx.r3.u64 = PPC_LOAD_U32(streamPtr + 28);
         return;
     }
 
-    // Load the vtable pointer from object+0
-    uint32_t vtablePtr = PPC_LOAD_U32(objectPtr + 0);
-
-    // Validate vtable pointer
-    if (vtablePtr == 0)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] NULL vtable at object 0x{:08X} (call #{})",
-                objectPtr, s_callCount);
-            s_validationFailures++;
-        }
-        ctx.r3.u32 = 0;
+    if (streamPtr < 0x80000000 || streamPtr >= 0x90000000) {
+        ctx.r3.u64 = 0;
         return;
     }
 
-    if (vtablePtr < 0x80000000 || vtablePtr >= 0x90000000)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] Invalid vtable 0x{:08X} at object 0x{:08X} (call #{})",
-                vtablePtr, objectPtr, s_callCount);
-            s_validationFailures++;
-        }
-        ctx.r3.u32 = 0;
+    if (storageDevice == 0 || storageDevice < 0x80000000 || storageDevice >= 0x90000000) {
+        ctx.r3.u64 = 0;
         return;
     }
 
-    // Load the function pointer from vtable+48
-    uint32_t funcPtr = PPC_LOAD_U32(vtablePtr + 48);
-
-    // Validate function pointer
-    if (funcPtr == 0)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] NULL function at vtable+48 (vtable=0x{:08X}, object=0x{:08X}, call #{})",
-                vtablePtr, objectPtr, s_callCount);
-            s_validationFailures++;
-        }
-        ctx.r3.u32 = 0;
+    const uint32_t vtablePtr = PPC_LOAD_U32(storageDevice + 0);
+    if (vtablePtr == 0 || vtablePtr < 0x80000000 || vtablePtr >= 0x90000000) {
+        ctx.r3.u64 = 0;
         return;
     }
 
-    if (funcPtr < 0x80000000 || funcPtr >= 0x90000000)
-    {
-        if (s_validationFailures < 10)
-        {
-            LOGF_WARNING("[sub_827E7FA8] Invalid function pointer 0x{:08X} at vtable+48 "
-                "(vtable=0x{:08X}, object=0x{:08X}, call #{})",
-                funcPtr, vtablePtr, objectPtr, s_callCount);
-            s_validationFailures++;
-        }
-        ctx.r3.u32 = 0;
+    const uint32_t funcPtr = PPC_LOAD_U32(vtablePtr + 48);
+    if (funcPtr == 0 || funcPtr < 0x80000000 || funcPtr >= 0x90000000) {
+        ctx.r3.u64 = 0;
         return;
     }
 
-    // All pointers are valid - call original implementation
-    // Log first few successful calls for debugging
-    if (s_callCount <= 5)
-    {
-        LOGF_WARNING("[sub_827E7FA8] Valid call #{}: object=0x{:08X}, vtable=0x{:08X}, func=0x{:08X}",
-            s_callCount, objectPtr, vtablePtr, funcPtr);
-    }
-
-    sub_827E7FA8(ctx, base);
+    __imp__sub_827E7FA8(ctx, base);
 }
 
 // =============================================================================
 // sub_821928D0 - File stream read operation (DEFENSIVE WRAPPER)
 // =============================================================================
-// This function reads from a file stream and eventually calls sub_827E7FA8.
-// Add validation here to catch bad stream objects before they cause PAC crashes.
-// The stream object is passed in r3 and stored in r30.
-// =============================================================================
 extern "C" void sub_821928D0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821928D0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_821928D0)
 {
     static int s_callCount = 0;
     static int s_invalidStreams = 0;
     s_callCount++;
 
-    // Get the stream object pointer from r3
     uint32_t streamPtr = ctx.r3.u32;
-
-    // Validate stream pointer
     if (streamPtr == 0)
     {
         if (s_invalidStreams < 10)
@@ -12862,12 +12965,17 @@ PPC_FUNC(sub_821928D0)
             LOGF_WARNING("[sub_821928D0] NULL stream pointer (call #{})", s_callCount);
             s_invalidStreams++;
         }
-        // Return 0 to indicate failure
         ctx.r3.u32 = 0;
         return;
     }
 
-    // Check if stream pointer is in valid guest memory range
+    uint32_t objectPtr = PPC_LOAD_U32(streamPtr + 0);
+    if (objectPtr == StorageConstants::PC_STORAGE_DEVICE_ADDR)
+    {
+        __imp__sub_821928D0(ctx, base);
+        return;
+    }
+
     if (streamPtr < 0x80000000 || streamPtr >= 0x90000000)
     {
         if (s_invalidStreams < 10)
@@ -12880,11 +12988,6 @@ PPC_FUNC(sub_821928D0)
         return;
     }
 
-    // Load and validate the object pointer at stream+0
-    uint32_t objectPtr = PPC_LOAD_U32(streamPtr + 0);
-
-    // If object pointer is NULL, the stream has no valid file object attached
-    // Cannot read from a null object - return 0 to indicate no data
     if (objectPtr == 0)
     {
         if (s_invalidStreams < 10)
@@ -12909,32 +13012,20 @@ PPC_FUNC(sub_821928D0)
         return;
     }
 
-    // If object pointer is valid, check the vtable
-    if (objectPtr != 0)
+    uint32_t vtablePtr = PPC_LOAD_U32(objectPtr + 0);
+    if (vtablePtr != 0 && (vtablePtr < 0x80000000 || vtablePtr >= 0x90000000))
     {
-        uint32_t vtablePtr = PPC_LOAD_U32(objectPtr + 0);
-
-        if (vtablePtr != 0 && (vtablePtr < 0x80000000 || vtablePtr >= 0x90000000))
+        if (s_invalidStreams < 10)
         {
-            if (s_invalidStreams < 10)
-            {
-                LOGF_WARNING("[sub_821928D0] Stream 0x{:08X} -> object 0x{:08X} has invalid vtable 0x{:08X} (call #{})",
-                    streamPtr, objectPtr, vtablePtr, s_callCount);
-                s_invalidStreams++;
-            }
-            ctx.r3.u32 = 0;
-            return;
+            LOGF_WARNING("[sub_821928D0] Stream 0x{:08X} -> object 0x{:08X} has invalid vtable 0x{:08X} (call #{})",
+                streamPtr, objectPtr, vtablePtr, s_callCount);
+            s_invalidStreams++;
         }
+        ctx.r3.u32 = 0;
+        return;
     }
 
-    // Stream object is valid - call original implementation
-    if (s_callCount <= 5)
-    {
-        LOGF_WARNING("[sub_821928D0] Valid call #{}: stream=0x{:08X}, object=0x{:08X}",
-            s_callCount, streamPtr, objectPtr);
-    }
-
-    sub_821928D0(ctx, base);
+    __imp__sub_821928D0(ctx, base);
 }
 
 // =============================================================================
@@ -12979,40 +13070,43 @@ PPC_FUNC(sub_82192980) {
 // =============================================================================
 // sub_82192A60 - File stream close (DEFENSIVE WRAPPER)
 // =============================================================================
-// Prevents crash when called with NULL stream from failed file open.
-// The crash occurs in sub_827E87A0 which dereferences the stream pointer.
-// Flow: sub_82192840 returns 0 â†?sub_821928D0 returns 0 â†?sub_82192A60(0) â†?CRASH
-// =============================================================================
 extern "C" void sub_82192A60(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82192A60(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82192A60) {
     static int s_callCount = 0;
     static int s_invalidStreams = 0;
     s_callCount++;
 
     uint32_t streamPtr = ctx.r3.u32;
-
-    // Check for NULL stream pointer
     if (streamPtr == 0) {
         s_invalidStreams++;
         if (s_invalidStreams <= 5) {
             LOGF_WARNING("[sub_82192A60] Skipping close for NULL stream (call #{})", s_callCount);
         }
-        return;  // Don't call original - would crash in sub_827E87A0
+        return;
     }
 
-    // Check for invalid address range (outside guest memory)
+    uint32_t storageDevicePtr = PPC_LOAD_U32(streamPtr + 0);
+    if (storageDevicePtr == StorageConstants::PC_STORAGE_DEVICE_ADDR) {
+        const uint32_t fileHandle = PPC_LOAD_U32(streamPtr + 4);
+        ClosePcHandle(fileHandle);
+        PPC_STORE_U32(streamPtr + 0, 0);
+        PPC_STORE_U32(streamPtr + 4, GUEST_INVALID_HANDLE_VALUE);
+        if (s_callCount <= 10) {
+            LOGF_WARNING("[sub_82192A60] Closed PC FileStream 0x{:08X} handle=0x{:08X} (call #{})",
+                streamPtr, fileHandle, s_callCount);
+        }
+        return;
+    }
+
     if (streamPtr < 0x80000000 || streamPtr >= 0x90000000) {
         s_invalidStreams++;
         if (s_invalidStreams <= 5) {
             LOGF_WARNING("[sub_82192A60] Skipping close for invalid stream 0x{:08X} (call #{})",
                 streamPtr, s_callCount);
         }
-        return;  // Don't call original - would crash
+        return;
     }
-
-    // Stream pointer is in valid range, but check if internal pointers are valid
-    // sub_827E87A0 crashes when stream[0] (storage device ptr) is NULL
-    uint32_t storageDevicePtr = ByteSwap(*(uint32_t*)(base + streamPtr + 0));
 
     if (storageDevicePtr == 0) {
         s_invalidStreams++;
@@ -13020,18 +13114,12 @@ PPC_FUNC(sub_82192A60) {
             LOGF_WARNING("[sub_82192A60] Skipping close for stream 0x{:08X} with NULL storage device (call #{})",
                 streamPtr, s_callCount);
         }
-        // Clear the stream structure to mark it as closed
-        *(uint32_t*)(base + streamPtr + 0) = 0;
-        *(uint32_t*)(base + streamPtr + 4) = ByteSwap((uint32_t)-1);
-        return;  // Don't call original - would crash dereferencing NULL
+        PPC_STORE_U32(streamPtr + 0, 0);
+        PPC_STORE_U32(streamPtr + 4, GUEST_INVALID_HANDLE_VALUE);
+        return;
     }
 
-    // Stream has valid internal pointers - call original
-    if (s_callCount <= 5) {
-        LOGF_WARNING("[sub_82192A60] Valid close for stream 0x{:08X} (call #{})", streamPtr, s_callCount);
-    }
-
-    sub_82192A60(ctx, base);
+    __imp__sub_82192A60(ctx, base);
 }
 
 // =============================================================================

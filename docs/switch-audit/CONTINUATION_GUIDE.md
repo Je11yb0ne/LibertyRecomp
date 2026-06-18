@@ -2887,3 +2887,87 @@ Next stage entry condition:
 
 - Start with the host-side FileStream handle policy for `sub_827E8180`.
 - Do not enable archive/RPF fallback or `memory:` URL handling in the same edit unless a failing test and source evidence prove it is required for the first file-open boundary.
+
+## 2026-06-18 Windows Continuation 71: Host FileStream Handle Boundary
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up first, using ReXGlue generated `__imp__` implementations as the source of truth and project wrappers only for audited platform glue.
+- Keep Switch paused at the LibertyRecompExeFs / NSP-like pre-guest baseline unless explicitly testing Switch.
+- Establish a safe host-side file-stream boundary before adding any archive/RPF fallback or entering new guest/runtime code.
+
+Completed in this batch:
+
+- Added a host-side synthetic PC file handle table in `LibertyRecomp/kernel/imports.cpp`.
+  - `NtFileHandle` owns `std::fstream`, so PC handles are allocated in native host memory with `new (std::nothrow) NtFileHandle()`.
+  - The guest `FileStream` object remains a small guest-memory struct allocated from `g_userHeap.AllocPhysical()`.
+  - The guest struct stores `PC_STORAGE_DEVICE_ADDR`, a synthetic handle starting at `0x50000001`, the stream position, capacity, and file size.
+- Added shared handle resolution/cleanup helpers:
+  - `RegisterPcHandle()`
+  - `GetPcHandle()`
+  - `ClosePcHandle()`
+  - `ResolveNativeFileHandle()`
+- Updated the PC stream read/seek/size/close wrappers so PC synthetic handles are resolved on the host side and non-PC streams call generated `__imp__` implementations instead of public aliases.
+- Tightened `sub_827E8180` so it only opens concrete regular files already exposed by VFS.
+  - Shader bypass behavior remains unchanged.
+  - Missing files still return `0`.
+  - VFS hits that resolve only to a directory now log `VFS RESOLVED NON-FILE` and return `0` instead of attempting to open a directory as a file.
+- Did not add RPF/archive fallback, `memory:` URL handling, or broad VFS mapping changes in this batch.
+
+Root-cause / evidence:
+
+- The old backup implementation had a useful `s_pcFileHandleTable` pattern, but using `CreateKernelObject<NtFileHandle>()` would be unsafe here because it allocates in guest/physical memory while `std::fstream` must stay native.
+- The current smoke shows many resource paths still missing from the extracted directory layout. `platform:/rain.dds` and `platform:/moon.dds` currently resolve through a broad platform mapping to the `game/xbox360` directory, not to a regular file.
+- A recursive search of the user's real extracted GTA IV tree did not find `TIMECYC.DAT`, `rain.dds`, or `rainanim.dds` as loose extracted files. This points the next boundary toward RPF archive/content lookup rather than direct loose-file VFS open.
+- The user-provided OZORDI/XenonRecomp commit `207253d67cdef67235805d595999fa0a2e4fcbd9` remains recorded as a future codegen memory-pressure reference: do not use static local scratch containers inside per-function recompilation loops for GTA IV-scale codegen.
+
+Fresh verification:
+
+- Static policy check:
+  `PASS: safe host FileStream policy present`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remained: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, existing `ctx.lr` printf format warning, and existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-pcfilestream-regular-e0b61a98-d470-4b78-8af9-975ef5ec7f03.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-pcfilestream-regular-e0b61a98-d470-4b78-8af9-975ef5ec7f03.log`
+- Smoke result:
+  killed intentionally at the 45 second bounded smoke timeout.
+  Counts: `MISSING-FUNC=0`, `MISSING_FUNC=0`, `Access violation=0`, `C0000005=0`, `C00000FD=0`, `Unhandled exception=0`, `Exception 0x=0`, `FileStream=0`, `VFS RESOLVED NON-FILE=3`, `NOT FOUND via VFS=125`, `assertcb=33`, `tw/td trap hit=99`.
+  The run reached `[Main] Video device created`, `sub_8218BE28 #2500`, and `sub_82125478 #1 EXIT`.
+  Current visible blocker remains resource/content lookup: direct loose-file VFS still cannot satisfy key paths such as `platform:/data/TIMECYC.DAT`, `platform:/rain.dds`, and `platform:/rainanim.dds`.
+- Temporary `portable.txt` and temporary executable-root `game` junction were removed after smoke. The earlier PowerShell `Remove-Item` junction cleanup bug was corrected by deleting only the verified junction path with `[System.IO.Directory]::Delete()`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this host FileStream handle boundary.
+   Completion standard: only `imports.cpp` and this guide are staged, commit message states the audited boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Classify the direct VFS miss set.
+   Completion standard: list the first blocking loose-file requests, identify which are absent from the extracted tree, and separate optional shader/texture fallbacks from required data files.
+3. Inspect current RPF/archive support before editing.
+   Completion standard: determine whether existing `NtFileHandle`/RPF helpers can answer `common.rpf`, `xbox360.rpf`, or `audio.rpf` requests for `TIMECYC.DAT`/rain resources without putting host objects in guest memory.
+4. Add one failing static or smoke-visible check for the chosen archive/content path.
+   Completion standard: the check proves a concrete requested file either resolves to a regular loose file, a specific RPF entry, or remains a documented missing-content blocker.
+5. Implement the minimum safe resource/content lookup fix.
+   Completion standard: no broad path remapping, no guest-heap `std::fstream`, no public-alias recursion, and smoke advances from directory/non-file or `NOT FOUND via VFS` to a concrete classified next blocker.
+
+Next stage entry condition:
+
+- Start with the VFS/RPF content boundary for `platform:/data/TIMECYC.DAT`, `platform:/rain.dds`, `platform:/rainanim.dds`, and nearby first-failing resource paths.
+- Do not enter gameplay or claim playability. This remains Windows runtime scaffolding toward a future Switch-portable baseline.
