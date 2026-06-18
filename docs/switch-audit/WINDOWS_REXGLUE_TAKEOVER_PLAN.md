@@ -119,6 +119,29 @@ full `rex::ReXApp` migration:
 - Guest XEX loading, generated-source attachment, `PPCImageConfig`, and
   graphics backend selection remain future phases.
 
+Phase 2 is now verified through the generated metadata / function table
+boundary, still before XEX load or guest launch:
+
+- `LibertyRecompRex` now links through `LibertyRecompLib`, so it uses the
+  existing GTA IV generated sources and generated include path without copying
+  or regenerating tracked generated code.
+- The sidecar calls
+  `rex::Runtime::Setup(PPCImageConfig.code_base, PPCImageConfig.code_size,
+  PPCImageConfig.image_base, PPCImageConfig.image_size,
+  PPCImageConfig.func_mappings, ...)`.
+- The ReXGlue runtime initializes the GTA IV code/image metadata and registers
+  `37151` recompiled functions in tool mode.
+- The current prebuilt `rexkernel.lib` behaves like a codegen-only kernel build:
+  it does not contain `xam_ui.cpp.obj` or `xboxkrnl_crypt.cpp.obj`, while the
+  generated mapping table references eight `__imp__` XAM/XboxKrnl symbols from
+  those files.
+- `LibertyRecompRex/src/pre_guest_import_bridges.cpp` is a sidecar-only
+  temporary bridge for those eight symbols so the generated metadata can link.
+  It is not a gameplay/runtime implementation and must be replaced with full
+  SDK exports or real GTA IV overrides before guest launch work.
+- The legacy `LibertyRecomp` target still builds in the same Windows build
+  directory.
+
 ### Phase 1: API And CMake Compatibility Probe
 
 Goal: prove the current repo can build a tiny ReXGlue-native Windows target

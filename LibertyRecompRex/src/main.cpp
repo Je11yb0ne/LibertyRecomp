@@ -8,6 +8,8 @@
 #include <rex/logging.h>
 #include <rex/runtime.h>
 
+#include "gta4_config.h"
+
 namespace {
 
 std::filesystem::path executable_folder(const char* argv0) {
@@ -41,7 +43,15 @@ int main(int argc, char** argv) {
     config.kernel_init = rex::kernel::InitializeKernel;
 
     rex::Runtime runtime(game_root);
-    const rex::X_STATUS status = runtime.Setup(std::move(config));
+    REXLOG_INFO("  PPC code:  0x{:08X}-0x{:08X}", PPCImageConfig.code_base,
+                PPCImageConfig.code_base + PPCImageConfig.code_size);
+    REXLOG_INFO("  PPC image: 0x{:08X}-0x{:08X}", PPCImageConfig.image_base,
+                PPCImageConfig.image_base + PPCImageConfig.image_size);
+
+    const rex::X_STATUS status =
+        runtime.Setup(PPCImageConfig.code_base, PPCImageConfig.code_size,
+                      PPCImageConfig.image_base, PPCImageConfig.image_size,
+                      PPCImageConfig.func_mappings, std::move(config));
     if (XFAILED(status)) {
         REXLOG_ERROR("ReXGlue runtime setup failed: {:08X}", status);
         rex::ShutdownLogging();

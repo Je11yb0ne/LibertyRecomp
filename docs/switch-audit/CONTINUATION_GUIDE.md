@@ -3391,3 +3391,92 @@ Next stage entry condition:
 
 - Begin with generated-source integration into `LibertyRecompRex`, still before `LoadXexImage()` or guest launch.
 - Keep `LibertyRecomp/kernel/imports.cpp`, generated source contents, thirdparty submodules, and Switch packaging untouched unless the generated-source integration produces a concrete, recorded blocker.
+
+## 2026-06-19 Windows Continuation 77: ReXGlue Generated Metadata Sidecar
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue Windows-first ReXGlue takeover through the separate `LibertyRecompRex` sidecar.
+- Attach existing GTA IV generated metadata and function mappings without loading `default.xex` or launching guest code.
+- Do not claim Windows or Switch playability.
+
+Completed in this batch:
+
+- Reproduced the Phase 2 sidecar linker blocker after linking `LibertyRecompRex` through `LibertyRecompLib`.
+- Confirmed the generated source set is already wrapped by `LibertyRecompLib` and exports `PPCImageConfig`.
+- Changed `LibertyRecompRex` to call the `rex::Runtime::Setup(...)` overload that accepts:
+  - `PPCImageConfig.code_base`,
+  - `PPCImageConfig.code_size`,
+  - `PPCImageConfig.image_base`,
+  - `PPCImageConfig.image_size`,
+  - `PPCImageConfig.func_mappings`.
+- Added a Windows-only `SPDLOG_COMPILED_LIB` compile definition to `LibertyRecompLib` so generated objects and ReXGlue prebuilt `fmt`/`spdlog` libraries use the same linkage mode.
+- Root-caused the remaining linker failure:
+  - `LibertyRecompLib` needed eight generated `__imp__` XAM/XboxKrnl PPC symbols.
+  - The local prebuilt `rexkernel.lib` did not define those symbols.
+  - Archive inspection showed `rexkernel.lib` contains `xam_module.cpp.obj` / `xboxkrnl_module.cpp.obj` but not `xam_ui.cpp.obj` or `xboxkrnl_crypt.cpp.obj`.
+  - ReXGlue `src/kernel/CMakeLists.txt` removes exactly `xam/xam_ui.cpp` and `xboxkrnl/xboxkrnl_crypt.cpp` under `REXGLUE_CODEGEN_ONLY`, matching the observed prebuilt library behavior.
+- Added `LibertyRecompRex/src/pre_guest_import_bridges.cpp` as a sidecar-only temporary bridge for:
+  - `__imp__XamShowMessageBoxUIEx`,
+  - `__imp__XamShowGamerCardUIForXUID`,
+  - `__imp__XamShowPlayerReviewUI`,
+  - `__imp__XamShowDeviceSelectorUI`,
+  - `__imp__XamShowDirtyDiscErrorUI`,
+  - `__imp__XeKeysConsoleSignatureVerification`,
+  - `__imp__XeCryptSha`,
+  - `__imp__XeKeysConsolePrivateKeySign`.
+- The bridge only unblocks pre-guest generated metadata linking. It is not a gameplay/runtime implementation and must be replaced with full SDK exports or real GTA IV overrides before guest launch.
+
+Fresh verification:
+
+- Configure command:
+  `$env:VCPKG_ROOT='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\vcpkg'; cmake -S C:\Users\Jellybone\Documents\GitHub\LibertyRecomp -B C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest`
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`, `llvm-objdump`, or `objdump` remained, but Ninja returned success.
+- Sidecar smoke command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Sidecar smoke result:
+  exit code `0`; it logged the GTA IV PPC code range `0x82120000-0x82A13D5C`, image range `0x82000000-0x831F0000`, initialized the function table, registered `37151` recompiled functions, reached `ReXGlue runtime setup reached tool-mode pre-guest boundary`, and exited without `LoadXexImage()` or guest launch.
+- Sidecar log:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.log`
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded. Existing warnings remained, including thirdparty ImGui/ImPlot nontrivial memcall warnings, the existing `vfs.h` block-comment warning, existing `xam.cpp` format/sscanf warnings, and the existing vcpkg applocal warning.
+- No Switch build was run in this batch because Switch remains paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompLib/CMakeLists.txt`,
+  `LibertyRecompRex/CMakeLists.txt`,
+  `LibertyRecompRex/src/main.cpp`,
+  `LibertyRecompRex/src/pre_guest_import_bridges.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this generated-metadata sidecar stage.
+   Completion standard: only the allowed current-stage files are staged, commit message states the Windows/ReXGlue generated metadata boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Start the sidecar content/XEX preflight boundary without guest launch.
+   Completion standard: prove the sidecar can identify `game:\default.xex` from the configured assets root and log the result before calling `LoadXexImage()`.
+3. Decide how to replace the temporary import bridge before guest launch.
+   Completion standard: either link a complete non-codegen-only ReXGlue kernel build, rebuild the SDK locally with the required kernel sources, or migrate the required GTA IV exports as real sidecar overrides with recorded rationale.
+4. Keep Vulkan-first work as a later explicit graphics boundary.
+   Completion standard: do not enable runtime graphics before XEX/module preflight is stable.
+
+Next stage entry condition:
+
+- Begin with XEX/content preflight in `LibertyRecompRex`, still stopping before `LoadXexImage()` and guest code.
+- Do not let the temporary bridge become a runtime implementation.
+- Keep Switch paused and do not modify generated sources or thirdparty submodules.

@@ -42,6 +42,7 @@ unset(_path)
 unset(_lib)
 
 add_executable(LibertyRecompRex
+    "src/pre_guest_import_bridges.cpp"
     "src/main.cpp"
 )
 
@@ -57,7 +58,7 @@ target_include_directories(LibertyRecompRex PRIVATE
 )
 
 target_link_libraries(LibertyRecompRex PRIVATE
-    ${LIBERTY_REX_PREBUILT_LIBS}
+    LibertyRecompLib
     bcrypt
     ws2_32
 )

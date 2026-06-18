@@ -28,6 +28,9 @@ add_library(LibertyRecompLib
 )
 
 target_compile_features(LibertyRecompLib PUBLIC cxx_std_23)
+if (WIN32)
+    target_compile_definitions(LibertyRecompLib PUBLIC SPDLOG_COMPILED_LIB)
+endif()
 target_include_directories(LibertyRecompLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(LibertyRecompLib PUBLIC "${REXGLUE_GENERATED}")
 target_include_directories(LibertyRecompLib PUBLIC "${REXGLUE_ROOT}/include")
