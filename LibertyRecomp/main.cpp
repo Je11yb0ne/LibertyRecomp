@@ -28,6 +28,7 @@
 #include <user/registry.h>
 #include <kernel/xdbf.h>
 #include <install/installer.h>
+#include <install/platform_paths.h>
 #include <install/update_checker.h>
 #include <os/logger.h>
 #include <os/process.h>
@@ -778,6 +779,51 @@ static std::array<std::string_view, 3> g_D3D12RequiredModules =
 const size_t XMAIOBegin = 0x7FEA0000;
 const size_t XMAIOEnd = XMAIOBegin + 0x0000FFFF;
 
+#ifndef __SWITCH__
+static std::filesystem::path SelectAudioRoot(const std::filesystem::path& gameRoot)
+{
+    const std::filesystem::path topLevelAudio = gameRoot / "audio";
+    const std::filesystem::path xbox360Audio = gameRoot / "xbox360" / "audio";
+    std::error_code ec;
+
+    if (std::filesystem::exists(topLevelAudio, ec))
+        return topLevelAudio;
+
+    ec.clear();
+    if (std::filesystem::exists(xbox360Audio, ec))
+        return xbox360Audio;
+
+    return topLevelAudio;
+}
+
+static void LogWindowsContentPreflight(const std::filesystem::path& gameRoot)
+{
+    auto logPresence = [](const char* label, const std::filesystem::path& path)
+    {
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(path, ec);
+        printf("[Main] Windows VFS preflight: %s %s -> %s\n",
+               label, exists ? "FOUND" : "MISSING", path.string().c_str());
+        fflush(stdout);
+        LOGF_IMPL(Utility, "Main", "Windows VFS preflight: {} {} -> {}",
+                  label, exists ? "FOUND" : "MISSING", path.string());
+    };
+
+    logPresence("game root", gameRoot);
+    logPresence("default.xex", gameRoot / "default.xex");
+    logPresence("common extracted dir", gameRoot / "common");
+    logPresence("platform extracted dir", gameRoot / "xbox360");
+    logPresence("platform textures dir", gameRoot / "xbox360" / "textures");
+    logPresence("audio extracted dir", gameRoot / "audio");
+    logPresence("xbox360 audio dir", gameRoot / "xbox360" / "audio");
+    logPresence("common.rpf source archive", gameRoot / "common.rpf");
+    logPresence("xbox360.rpf source archive", gameRoot / "xbox360.rpf");
+    logPresence("audio.rpf source archive", gameRoot / "audio.rpf");
+    logPresence("install aes_key.bin", PlatformPaths::GetAesKeyPath());
+    logPresence("bundled aes_key.bin", PlatformPaths::GetBundledAesKeyPath());
+}
+#endif
+
 Memory g_memory;
 Heap g_userHeap;
 XDBFWrapper g_xdbfWrapper;
@@ -1287,7 +1333,8 @@ void KiSystemStartup()
 #if defined(__SWITCH__)
     const std::string audioPath = (const char*)SwitchSelectAudioRoot(gameRoot).u8string().c_str();
 #else
-    const std::string audioPath = (const char*)(gameRoot / "audio").u8string().c_str();
+    LogWindowsContentPreflight(gameRoot);
+    const std::string audioPath = (const char*)SelectAudioRoot(gameRoot).u8string().c_str();
 #endif
     
     // Register main root paths

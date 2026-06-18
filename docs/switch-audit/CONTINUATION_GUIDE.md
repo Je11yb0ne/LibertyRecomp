@@ -2093,3 +2093,77 @@ Next stage entry condition:
 
 - Resume at Windows VFS/resource path bring-up after the ReXGlue GPU resource create restoration. Start with `platform:/textures/*`, `common:/DATA/LOADINGSCREENS_360.DAT`, and the repeated trap warnings.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 61: ReXGlue VFS Content Preflight
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated code and ReXGlue's VFS model as the reference.
+- Do not treat missing `platform:/textures/*` resources as wrapper bugs until the content layout and RPF extraction preconditions are proven.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Re-read ReXGlue `Virtual-File-System.md` and `Generated-Code-Structure.md`.
+- Reconfirmed the built ReXGlue CLI is callable:
+  `rexglue.exe --version` returned `0.8.1.32-dev.gf22cd9d`, and `rexglue codegen --help` reported the codegen command.
+- Checked the existing `RpfLoader` integration and found no production call sites for `RpfLoader::Initialize`, `ScanForRpfFiles`, `HasFile`, or `ExtractFile`; it is not currently serving VFS misses.
+- Checked the real smoke content directory:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+  It has top-level `common.rpf`, `xbox360.rpf`, and `audio.rpf`, plus `xbox360/audio`, but it does not have `xbox360/textures`.
+- Read the reference `D:\GTA4 NS\LibertyRecomp-main\docs\RPF_EXTRACTION_DESIGN.md` and current installer code. The intended project model is install/preparation-time RPF extraction into `game/common`, `game/xbox360`, and `game/audio`, then VFS direct file serving, not relying on raw top-level RPF archives during normal runtime.
+- Confirmed the current repo has no `aes_key.bin` in the build output or expected bundled paths. The actual RPF name table bytes sampled from `common.rpf`, `xbox360.rpf`, and `audio.rpf` are not readable without the AES key/extraction path.
+- Added Windows-only startup preflight logging in `LibertyRecomp/main.cpp` so smoke logs now state whether the expected direct-VFS content exists:
+  `default.xex`, extracted `common`, extracted `xbox360`, extracted `xbox360/textures`, extracted `audio`, `xbox360/audio`, source RPF archives, and AES key paths.
+- Added a Windows `audio:` fallback matching the existing Switch audit behavior: use `game/audio` if present, otherwise use `game/xbox360/audio` when present.
+
+Fresh verification:
+
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. Existing `vfs.h` block-comment warning remains. The existing vcpkg applocal warning about missing `dumpbin`/`objdump` still appears after link and does not fail Ninja.
+- Final bounded smoke used a temporary `portable.txt` and a temporary `game` junction pointing to:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- Final bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-vfs-preflight-stdout-931b36ee-6212-4174-8922-c602b13f0a12.log`
+- Final bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-vfs-preflight-stdout-e374bc42-fa70-4f0f-a4e7-e7ca22141117.log`
+- Smoke result:
+  the process was killed intentionally at the 35-second bound. There were `0` VEH entries, `11` VFS missing entries, `0` VFS found entries, `12` visible Windows VFS preflight lines, and `11` stderr `MISSING-FUNC` diagnostics. The temporary `game` junction and `portable.txt` were removed afterward.
+- Preflight evidence:
+  `default.xex`, extracted `common`, extracted `xbox360`, `xbox360/audio`, and the three source RPF archives are present. `xbox360/textures`, top-level `audio`, install `aes_key.bin`, and bundled `aes_key.bin` are missing.
+- Runtime surface:
+  reached module load, graphics backend attempts, guest-thread startup, file-resolution calls, and resource path requests without a VEH inside the 35-second smoke bound. This still does not represent playability.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Decide the next content-path boundary from evidence, not guesses.
+   Completion standard: either provide/locate `aes_key.bin` and run installer/RPF extraction into a complete direct-VFS layout, or explicitly keep raw RPF runtime access out of scope for this phase.
+2. If a complete extracted layout becomes available, rerun the same bounded smoke.
+   Completion standard: `platform:/textures/fonts`, `platform:/textures/buttons_360`, `platform:/textures/hud`, `platform:/textures/skydome`, and `platform:/textures/fx_Rain` are either resolved or replaced by a clearly mapped later blocker.
+3. Trace the current stderr `MISSING-FUNC` diagnostics after the content layout boundary is stable.
+   Completion standard: map the first LR/R12 pair to generated/source functions and decide whether it is expected nullable callback dispatch or a missing vtable/import setup.
+4. Trace `common:/DATA/LOADINGSCREENS_360.DAT` and the current `\Device\Harddisk0\partition0` miss against the ReXGlue VFS null-device model.
+   Completion standard: decide whether this project VFS needs a ReXGlue-style null device/no-op path for Partition0 or whether the path should be translated to `common:`.
+5. Keep the next behavior change ReXGlue-first.
+   Completion standard: use generated `__imp__` implementations for wrapper hooks, ReXGlue VFS behavior for root-device decisions, and existing installer/RPF extractor paths for content prep.
+6. Rebuild, smoke, update this guide, stage scoped files only, commit, push, and continue.
+
+Next stage entry condition:
+
+- Resume at Windows VFS/content-layout stabilization with visible preflight evidence. The highest-value next step is to obtain or generate the complete extracted `game/xbox360/textures` layout before chasing resource-path misses as runtime bugs.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
