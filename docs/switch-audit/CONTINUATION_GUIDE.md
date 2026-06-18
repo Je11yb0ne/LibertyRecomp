@@ -1939,3 +1939,82 @@ Next stage entry condition:
 
 - Resume at the `822F983C` and `82200F74/82200F94` null-dispatch clusters, still in Windows startup/resource bring-up.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 59: GPU Init Wrapper Restore
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated implementations as the source of truth for project-side strong wrappers.
+- Clear startup-chain wrapper recursion without replacing generated behavior with broad hand-written bypasses.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Replaced the old `sub_82856BA8` GPU setup collapse with a tracing wrapper that calls generated `__imp__sub_82856BA8`.
+- Confirmed the old bypass left the global GPU/resource manager slot `0x831255F0` uninitialized, feeding later null-dispatch storms around `822F983C` and `82200F74/82200F94`.
+- Redirected the local GPU-init subcluster wrappers `sub_829D92C0`, `sub_8286BA28`, `sub_8286CE40`, `sub_82854448`, `sub_8286C8F0`, and `sub_8287E2C0` to their generated `__imp__` implementations after confirming the generated functions exist.
+- This is ReXGlue wrapper restoration, not a tracked generated-code refresh and not a gameplay/runtime-completeness claim.
+
+Fresh verification:
+
+- Static checks:
+  - `GREEN_PASS_SUB_82856BA8_CALLS_IMP` passed before the later cluster fix.
+  - `GREEN_PASS_GPU_INIT_SUBCLUSTER_CALLS_IMP` passed for `sub_829D92C0`, `sub_8286BA28`, and `sub_8286CE40`.
+  - `GREEN_PASS_GPU_CLUSTER_CALLS_IMP` passed for `sub_82854448`, `sub_8286C8F0`, and `sub_8287E2C0`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded with the known five `imports.cpp`/`vfs.h` warnings. The existing vcpkg applocal warning about missing `dumpbin`/`objdump` was printed after link and did not fail the build.
+- First bounded smoke after enabling generated GPU setup:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-gpusetup-d9fcb511-8568-4aa2-8786-e5395bd7fd73.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-gpusetup-e6c9b8af-44f6-45e8-b381-ab8b8a8bb524.log`
+  - result: previous `822F983C` / `82200F74` / `82200F94` missing-null storm disappeared; blocker moved to stack overflow in `sub_829D92C0`.
+- Second bounded smoke after fixing `sub_829D92C0`, `sub_8286BA28`, and `sub_8286CE40`:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-gpucluster-b46ca1ba-21b8-40e1-8e9d-d1b5ec079e3d.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-gpucluster-c56c7e1d-8393-49e1-b2a1-bc92c1de662b.log`
+  - result: `sub_829D92C0` overflow cleared; blocker moved to `sub_8287E2C0 + 0x55`.
+- Final bounded smoke after fixing `sub_82854448`, `sub_8286C8F0`, and `sub_8287E2C0`:
+  - stdout: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-gpucluster2-final-0ceffb7f-779d-426e-a58f-02d0b7b94c5f.log`
+  - stderr: `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-gpucluster2-final-7c76caa9-1439-45e7-be07-971edb064f7a.log`
+  - result: process exited through the current VEH path with `0x00000000`; do not treat this as success.
+  - counters: `MISSING=8`, `INDIRECT=0`, `VEH=1`.
+  - runtime surface: reached `[Main] KiSystemStartup done`, loaded `default.xex`, zeroed worker globals, reported entry `0x829A0860`, reached `[Main] Creating video device...`, attempted D3D12/Vulkan backend selection, entered `xstart` after `sub_829A7DC8`, spawned guest-thread workers, then hit a native access violation.
+  - graphics evidence: stderr showed `Trying graphics backend: D3D12.`, `Trying graphics backend: Vulkan.`, `volkInitialize failed with error code 0xFFFFFFFD.`, `Graphics interface creation returned null.`, then another `Trying graphics backend: D3D12.` before guest-thread traces continued.
+  - first missing calls after guest-thread start were the known nullable/null-dispatch diagnostics at `82300D28`, `827DB388`, `827DB3B0`, `827DB3D0`, `827DB3F4`, `82121160`, `82753D70`, and `824315D4`.
+  - current native access violation: `VEH exception code=0xC0000005`, top fault RVA `0x2C9C52`.
+  - current map evidence: `0x2C9C52 - 0x1000` maps to `o1heapAllocate + 0x82`; the stack maps through `Heap::Alloc`, `sub_8218BE28`, `sub_8220E108`, `__imp__sub_82120FB8`, `sub_82120FB8`, `__imp__sub_82120000`, `sub_82120000`, `__imp__sub_8218BEB0`, `sub_8218BEB0`, and `GuestThread::Start`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Trace the `o1heapAllocate + 0x82` access violation.
+   Completion standard: identify the requested allocation size, target heap/arena pointer, and whether the arena is null/corrupt, exhausted, or receiving an invalid alignment/size.
+2. Inspect `Heap::Alloc` and the wrappers on the mapped call chain (`sub_8218BE28`, `sub_8220E108`, `sub_82120FB8`, `sub_82120000`, `sub_8218BEB0`).
+   Completion standard: determine whether a project-side wrapper is corrupting heap state or whether generated ReXGlue behavior is reaching an uninitialized runtime heap.
+3. Keep the graphics backend evidence in view but do not treat the current blocker as purely renderer-side unless heap tracing disproves the mapped stack.
+   Completion standard: any graphics change must be tied to heap/guest-thread evidence, not the earlier D3D12/Vulkan log alone.
+4. Add the smallest diagnostic or runtime fix for the first proven heap/root-cause boundary.
+   Completion standard: no broad allocator rewrite; behavior changes require source/log evidence.
+5. Rebuild and run bounded smoke after the next minimal change.
+   Completion standard: Windows build succeeds and smoke either reaches past the `o1heapAllocate` fault or reports a clearly mapped next blocker.
+6. Commit and push the next verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: update this guide, sync it to the old Codex workspace, stage scoped files only, commit, push, then continue.
+
+Next stage entry condition:
+
+- Resume at the `o1heapAllocate + 0x82` access violation reached after module load, graphics backend attempts, `xstart`, and guest-thread startup.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.

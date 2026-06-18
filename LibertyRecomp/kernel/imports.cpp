@@ -9424,34 +9424,42 @@ PPC_FUNC(sub_82857240) {
 }
 
 // =============================================================================
-// sub_82856BA8 - GPU State/Shader Setup (COLLAPSED)
+// sub_82856BA8 - GPU State/Shader Setup
 // =============================================================================
-// This function orchestrates GPU state initialization including:
-//   - sub_8286DA20 (GPU resource alloc wrapper)
-//   - sub_82853CB0 (shader setup via vtable[3])
-//   - sub_82871A18 (additional GPU setup)
-//
-// All of these lead to vtable calls that expect Xbox GPU hardware.
-//
-// SOLUTION: Bypass entirely. Our shader cache (g_shaderCache in video.cpp)
-// already provides pre-compiled platform-native shaders. Shader loading
-// happens on-demand via GetOrLinkShader() when the render path needs them.
-//
-// This collapse eliminates the "first call works, second call hangs" pattern
-// caused by mixing partial Xbox GPU state with partial modern GPU state.
+// This wrapper must call the generated implementation so it can initialize the
+// global GPU/resource manager slot at 0x831255F0. Hardware wait/fence paths stay
+// hooked below, but bypassing the whole setup leaves later resource/stat init
+// paths calling through a null manager pointer.
 // =============================================================================
 extern "C" void sub_82856BA8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82856BA8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82856BA8) {
     static int s_count = 0;
     ++s_count;
 
-    if (s_count <= 3) {
-        LOG_WARNING("[GPU] sub_82856BA8 BYPASSING - shader cache handles GPU/shader setup");
+    const uint32_t managerSlot = 0x831255F0;
+    const uint32_t beforeManager = PPC_LOAD_U32(managerSlot);
+    if (s_count <= 5) {
+        LOGF_WARNING("[GPU] sub_82856BA8 ENTER #{} managerSlot=0x{:08X}", s_count, beforeManager);
     }
 
-    // Return immediately - shader setup handled by host shader cache
-    // Shaders are loaded on-demand via GetOrLinkShader() during rendering
-    return;
+    __imp__sub_82856BA8(ctx, base);
+
+    const uint32_t afterManager = PPC_LOAD_U32(managerSlot);
+    if (s_count <= 5 || (beforeManager == 0 && afterManager == 0)) {
+        uint32_t vtable = 0;
+        uint32_t slot8 = 0;
+        uint32_t slot56 = 0;
+        if (afterManager != 0) {
+            vtable = PPC_LOAD_U32(afterManager + 0);
+            if (vtable != 0) {
+                slot8 = PPC_LOAD_U32(vtable + 8);
+                slot56 = PPC_LOAD_U32(vtable + 56);
+            }
+        }
+        LOGF_WARNING("[GPU] sub_82856BA8 EXIT #{} managerSlot=0x{:08X} vtable=0x{:08X} slot8=0x{:08X} slot56=0x{:08X}",
+                     s_count, afterManager, vtable, slot8, slot56);
+    }
 }
 
 // =============================================================================
@@ -9563,26 +9571,29 @@ PPC_FUNC(sub_82850028) {
 }
 
 extern "C" void sub_829D92C0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_829D92C0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_829D92C0) {
     static int s_count = 0; ++s_count;
     if (s_count <= 10) LOG_WARNING("[sub_8286D668] sub_829D92C0 ENTER");
-    sub_829D92C0(ctx, base);
+    __imp__sub_829D92C0(ctx, base);
     if (s_count <= 10) LOG_WARNING("[sub_8286D668] sub_829D92C0 EXIT");
 }
 
 // Additional calls in sub_8286D668
 extern "C" void sub_8286BA28(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8286BA28(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8286BA28) {
     LOG_WARNING("[sub_8286D668] sub_8286BA28 ENTER");
-    sub_8286BA28(ctx, base);
+    __imp__sub_8286BA28(ctx, base);
     LOG_WARNING("[sub_8286D668] sub_8286BA28 EXIT");
 }
 
 extern "C" void sub_8286CE40(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8286CE40(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8286CE40) {
     static int s_count = 0; ++s_count;
     if (s_count <= 5) LOG_WARNING("[sub_8286D668] sub_8286CE40 ENTER");
-    sub_8286CE40(ctx, base);
+    __imp__sub_8286CE40(ctx, base);
     if (s_count <= 5) LOG_WARNING("[sub_8286D668] sub_8286CE40 EXIT");
 }
 
@@ -9688,24 +9699,27 @@ PPC_FUNC(sub_8266A778) {
 }
 
 extern "C" void sub_82854448(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82854448(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82854448) {
     LOG_WARNING("[sub_8286CCA0] sub_82854448 ENTER");
-    sub_82854448(ctx, base);
+    __imp__sub_82854448(ctx, base);
     LOGF_WARNING("[sub_8286CCA0] sub_82854448 EXIT r3={}", ctx.r3.u32);
 }
 
 extern "C" void sub_8286C8F0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8286C8F0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8286C8F0) {
     LOG_WARNING("[sub_8286CCA0] sub_8286C8F0 ENTER");
-    sub_8286C8F0(ctx, base);
+    __imp__sub_8286C8F0(ctx, base);
     LOG_WARNING("[sub_8286CCA0] sub_8286C8F0 EXIT");
 }
 
 // Trace internal calls of sub_8286C8F0
 extern "C" void sub_8287E2C0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8287E2C0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8287E2C0) {
     LOG_WARNING("[sub_8286C8F0] sub_8287E2C0 ENTER");
-    sub_8287E2C0(ctx, base);
+    __imp__sub_8287E2C0(ctx, base);
     LOG_WARNING("[sub_8286C8F0] sub_8287E2C0 EXIT");
 }
 
