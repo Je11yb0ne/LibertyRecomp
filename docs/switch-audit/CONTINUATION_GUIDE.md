@@ -2399,3 +2399,77 @@ Next stage entry condition:
 
 - Resume at the `0x830083C0` assert callback boundary, not at generic `tw/td trap` logging.
 - The next decision is whether to instrument `sub_82994830` / `sub_82994840`, or reclassify type-22 traps as expected once boot-order evidence proves the zero callback is intentional.
+
+## 2026-06-18 Windows Continuation 65: Assert Callback Wrapper Evidence
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated `__imp__` functions as the call-through reference.
+- Keep wrapper diagnostics narrow and evidence-oriented; do not replace generated code or install synthetic callbacks without proving the guest expects one.
+- Treat the repeated type-22 trap as a mapped guest assert/reporting path unless new evidence shows it blocks progress.
+
+Completed in this batch:
+
+- Added project-side wrapper diagnostics for `sub_82994830` and `sub_82994840` in `LibertyRecomp/kernel/imports.cpp`.
+- The wrappers call through to generated `__imp__sub_82994830` / `__imp__sub_82994840` and only log the assert callback global at `0x830083C0`.
+- Confirmed the correct override macro for this codebase is `PPC_FUNC_IMPL(name)`, matching the existing `sub_82300C78` wrapper. A first attempt using `PPC_FUNC(name)` compiled but produced a C++ mangled symbol and did not override the generated weak public alias.
+- Link-map ownership after the correction:
+  - public `sub_82994830`: `imports.cpp.obj`
+  - public `sub_82994840`: `imports.cpp.obj`
+  - `__imp__sub_82994830`: `LibertyRecompLib:gta4_recomp.66.cpp.obj`
+  - `__imp__sub_82994840`: `LibertyRecompLib:gta4_recomp.66.cpp.obj`
+- Smoke evidence:
+  - `sub_82994830` is called once from `lr=0x829926A4`.
+  - It requests `0x00000000` and leaves `0x830083C0` as `0x00000000`.
+  - `sub_82994840` then repeatedly enters from `lr=0x8298EF88`, reads callback `0x00000000`, calls the generated implementation, and returns with `r3=0x00000002`.
+- This proves the current repeated type-22 trap is not caused by a missing host-installed assert callback. The guest CRT path explicitly zeroes the callback via `sub_82992680 -> sub_82994830(0)`.
+- No generated code was edited.
+
+Fresh verification:
+
+- Red check before the wrapper diagnostic:
+  previous smoke logs had `ASSERT_CALLBACK_DIAGNOSTIC_COUNT=0`.
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remained: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, existing `ctx.lr` printf format warning, and the existing vcpkg applocal warning about missing `dumpbin` / `objdump`.
+- Link-map check:
+  `LibertyRecomp.map` resolved public `sub_82994830` and public `sub_82994840` to `imports.cpp.obj`, while the `__imp__` symbols remained in `gta4_recomp.66.cpp.obj`.
+- Bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-assertcb-impl-95ceed32-ac30-458f-b1cc-0e2edd8a3816.log`
+- Bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-assertcb-impl-71dbcfb7-39c5-4603-8eda-9ead58a0bf35.log`
+- Smoke result:
+  killed intentionally at the 45-second bound. Counts: `ASSERTCB_TOTAL=33`, `ASSERTCB_SETTER=1`, `ASSERTCB_READER_ENTER=16`, `TRAP_CONTEXT_COUNT=99`, `CONTENT_LAYOUT_MISSING_COUNT=1`, `MISSING_FUNC_COUNT=11`, `VEH_COUNT=0`, `ACCESS_VIOLATION_COUNT=0`, `UNHANDLED_EXCEPTION_COUNT=0`, `C0000005_COUNT=0`, `C00000FD_COUNT=0`.
+- Temporary `portable.txt` and the temporary `game` junction were removed after the smoke run.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope if they reappear in a full status:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`.
+
+Next small tasks:
+
+1. Stop treating `tw/td trap hit (type 22)` from `lr=82994870 / r12=8298EF88` as the primary blocker.
+   Completion standard: continue to log it as guest assert/reporting evidence, but prioritize newer `MISSING-FUNC` entries and content-layout blockers.
+2. Map the newest actionable `MISSING-FUNC` entries.
+   Completion standard: trace `82753D70`, `824315D4`, and `82196C50/98/B4` to generated source and classify each as nullable callback, vtable setup gap, or missing service wrapper.
+3. Keep wrapper changes ReXGlue-first.
+   Completion standard: for any new wrapper, use `PPC_FUNC_IMPL` / strong public symbol and confirm map ownership before smoke.
+4. If a `MISSING-FUNC` is nullable/non-blocking, document it and move on.
+   Completion standard: smoke evidence shows execution continues and no precise exception keywords appear.
+5. If a `MISSING-FUNC` is a real missing service callback, implement the smallest wrapper or initializer that makes the generated call path more faithful.
+   Completion standard: build, map check if applicable, bounded smoke, updated guide, scoped commit, push.
+
+Next stage entry condition:
+
+- Resume at newer `MISSING-FUNC` mapping, starting with `lr=82753D70` or `lr=824315D4`.
+- Keep the assert callback diagnostics in place for now; remove or lower them only after the next runtime blocker no longer needs this evidence.

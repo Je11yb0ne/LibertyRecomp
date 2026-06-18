@@ -6911,6 +6911,8 @@ extern "C" void __imp__sub_829A7FF8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A7960(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A0678(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_82994700(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82994830(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82994840(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A7EA8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A7DC8(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829A27D8(PPCContext& ctx, uint8_t* base);
@@ -6958,6 +6960,52 @@ LIBERTY_BOOT_BREADCRUMB_WRAPPER(sub_829A7960)
 LIBERTY_BOOT_BREADCRUMB_WRAPPER(sub_829A0678)
 LIBERTY_BOOT_BREADCRUMB_WRAPPER(sub_82994700)
 LIBERTY_BOOT_BREADCRUMB_WRAPPER(sub_829A7EA8)
+
+namespace {
+constexpr uint32_t kLibertyAssertCallbackAddr = 0x830083C0;
+
+bool LibertyTraceAssertCallback(uint32_t count, uint32_t value) {
+    return count <= 16 || value != 0 || (count % 1000) == 0;
+}
+}  // namespace
+
+PPC_FUNC_IMPL(sub_82994830)
+{
+    static std::atomic<uint32_t> callCount{0};
+    const uint32_t count = callCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint32_t before = PPC_LOAD_U32(kLibertyAssertCallbackAddr);
+    const uint32_t requested = ctx.r3.u32;
+    const uint32_t savedLr = static_cast<uint32_t>(ctx.lr);
+    __imp__sub_82994830(ctx, base);
+    const uint32_t after = PPC_LOAD_U32(kLibertyAssertCallbackAddr);
+    if (LibertyTraceAssertCallback(count, requested) || before != after) {
+        printf("[BOOT-TRACE] assertcb sub_82994830 #%u lr=0x%08X requested=0x%08X before=0x%08X after=0x%08X\n",
+               count, savedLr, requested, before, after);
+        fflush(stdout);
+    }
+}
+
+PPC_FUNC_IMPL(sub_82994840)
+{
+    static std::atomic<uint32_t> callCount{0};
+    const uint32_t count = callCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint32_t before = PPC_LOAD_U32(kLibertyAssertCallbackAddr);
+    const uint32_t savedLr = static_cast<uint32_t>(ctx.lr);
+    const uint32_t savedR1 = ctx.r1.u32;
+    if (LibertyTraceAssertCallback(count, before)) {
+        printf("[BOOT-TRACE] assertcb sub_82994840 ENTER #%u lr=0x%08X r1=0x%08X callback=0x%08X\n",
+               count, savedLr, savedR1, before);
+        fflush(stdout);
+    }
+    __imp__sub_82994840(ctx, base);
+    const uint32_t after = PPC_LOAD_U32(kLibertyAssertCallbackAddr);
+    if (LibertyTraceAssertCallback(count, before) || before != after) {
+        printf("[BOOT-TRACE] assertcb sub_82994840 EXIT #%u lr=0x%08X r1=0x%08X callback=0x%08X r3=0x%08X\n",
+               count, savedLr, ctx.r1.u32, after, ctx.r3.u32);
+        fflush(stdout);
+    }
+}
+
 static void TraceCtorTarget829E9CE0(PPCContext& ctx, uint8_t* base) {
     const uint32_t savedLr = static_cast<uint32_t>(ctx.lr);
     const uint32_t savedR1 = ctx.r1.u32;
