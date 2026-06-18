@@ -9546,30 +9546,26 @@ PPC_FUNC(sub_829E5C38) {
 // =============================================================================
 // sub_82850028 - GPU Resource Create
 // =============================================================================
-// Original behavior:
-//   - Loads GPU device from TLS[1676]
-//   - Calls device->vtable[15] (offset 60) for resource validation/creation
-//   - Returns 0 for success, negative for error
-//
-// Problem: TLS[1676] vtable chain is uninitialized on PC, causing hang.
-//
-// Solution: Bypass vtable call, return success. Game's own structures
-// will be initialized by the allocation code that runs before the vtable call.
+// The old audit wrapper returned success without calling the generated body,
+// leaving the caller's output surface slot unset. Keep the trace, but use the
+// current ReXGlue generated implementation so resource creation side effects run.
 // =============================================================================
 extern "C" void sub_82850028(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_82850028(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82850028) {
     static int s_count = 0;
     ++s_count;
 
     if (s_count <= 10 || s_count % 100 == 0) {
-        LOGF_WARNING("[GPU] sub_82850028 GPU resource create #{} - bypassing vtable[15], returning success", s_count);
+        LOGF_WARNING("[GPU] sub_82850028 GPU resource create #{} ENTER", s_count);
     }
 
-    // Return success (0) - negative values indicate error per caller checks
-    // e.g., line 93332: "cmpwi cr6,r3,0" / "bge cr6,0x8286bbd0" (branch if >= 0)
-    ctx.r3.s64 = 0;
-}
+    __imp__sub_82850028(ctx, base);
 
+    if (s_count <= 10 || s_count % 100 == 0) {
+        LOGF_WARNING("[GPU] sub_82850028 GPU resource create #{} EXIT r3=0x{:08X}", s_count, ctx.r3.u32);
+    }
+}
 extern "C" void sub_829D92C0(PPCContext& ctx, uint8_t* base);
 extern "C" void __imp__sub_829D92C0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_829D92C0) {
@@ -9733,9 +9729,10 @@ PPC_FUNC(sub_827D85E0) {
 }
 
 extern "C" void sub_8285F6C0(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_8285F6C0(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8285F6C0) {
     LOG_WARNING("[sub_8286C8F0] sub_8285F6C0 ENTER (shader lookup)");
-    sub_8285F6C0(ctx, base);
+    __imp__sub_8285F6C0(ctx, base);
     LOGF_WARNING("[sub_8286C8F0] sub_8285F6C0 EXIT r3=0x{:08X}", ctx.r3.u32);
 }
 

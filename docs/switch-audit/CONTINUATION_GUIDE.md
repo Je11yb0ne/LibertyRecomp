@@ -2018,3 +2018,78 @@ Next stage entry condition:
 
 - Resume at the `o1heapAllocate + 0x82` access violation reached after module load, graphics backend attempts, `xstart`, and guest-thread startup.
 - Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
+
+## 2026-06-18 Windows Continuation 60: ReXGlue GPU Resource Create Restore
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up using ReXGlue generated implementations as the source of truth for project-side strong wrappers.
+- Remove stale hand-written GPU/resource bypasses only when smoke evidence proves they corrupt generated state.
+- Keep Switch frozen as the verified ExeFS/NSP-like pre-guest baseline unless a scoped Switch regression is explicitly required.
+
+Completed in this batch:
+
+- Re-read the ReXGlue wiki/codegen rules for generated weak aliases, strong project overrides, generated source structure, memory, VFS, and CLI/config usage before changing behavior.
+- Confirmed the compiled ReXGlue SDK is available at `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\tools\rexglue-sdk-0.8.1.32-dev.gf22cd9d-win-amd64`.
+- Fixed the native memcpy patch linkage to use `PPC_FUNC_IMPL(sub_82990830)` and `PPC_FUNC_IMPL(sub_82990880)`, matching ReXGlue's unmangled generated weak aliases. The previous `PPC_FUNC(...)` definitions produced C++-mangled symbols and did not override the generated public C aliases.
+- Instrumented the texture blit path temporarily and traced the bad texture copy arguments back to `__imp__sub_8286BBE8 -> sub_82850028 -> vtable[96] -> sub_8286ABF0`.
+- Proved the old `sub_82850028` wrapper returned success without calling the generated body, leaving the caller's output surface slot at `dstObj+24` unset. Before the fix, `sub_8286ABF0` entered with valid texture object dimensions but `dstSurface=0`, causing null/huge native memcpy calls under `sub_829E5110`.
+- Replaced the old `sub_82850028` success bypass with a tracing wrapper that calls generated `__imp__sub_82850028`.
+- Confirmed the fix makes generated resource creation write real surface pointers such as `0x80177D40`, `0x80178210`, and `0x80178C20`, and `sub_829E5110` then receives sane width/height/format arguments.
+- Fixed the next wrapper-recursion blocker: `sub_8285F6C0` now declares and calls generated `__imp__sub_8285F6C0` instead of recursively calling the public alias.
+- Removed the temporary `TEXFMT-WATCH`, `TEXBLIT-WATCH`, and `MEMCPY-WATCH` hooks before final verification. The committed behavior is the ReXGlue override/linkage fix plus wrapper restoration, not diagnostic masking.
+
+Fresh verification:
+
+- Whitespace check:
+  `git -c core.whitespace=cr-at-eol diff --check -- LibertyRecomp/kernel/imports.cpp LibertyRecomp/patches/memcpy_patches.cpp` passed.
+- Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Build result:
+  succeeded. Existing warnings remain: `vfs.h` block-comment warning, `imports.cpp` tautological `uint32_t` comparison, two Microsoft-goto warnings, and the existing `ctx.lr` printf format warning. The existing vcpkg applocal warning about missing `dumpbin`/`objdump` still appears after link and does not fail Ninja.
+- Final clean bounded smoke used a temporary `portable.txt` and a temporary `game` junction pointing to:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`
+- Final clean bounded smoke stdout:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-clean-gpucreate-1824555d-5eb2-460a-a07f-91f976acf7dc.log`
+- Final clean bounded smoke stderr:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-clean-gpucreate-6382829e-1288-4862-8b12-e3c0cc1abf40.log`
+- Smoke result:
+  the process was killed intentionally at the 35-second bound. There were `0` VEH entries, `0` missing indirect calls, `0` temporary watch logs, and no old null/huge memcpy diagnostics because the watch hooks were removed. The temporary `game` junction and `portable.txt` were removed afterward.
+- Runtime surface:
+  reached module load, host video creation, guest-thread starts, texture/resource work, and VFS/file-resolution calls. It still does not represent playability.
+- Current front edge:
+  real-directory smoke still reports missing resolved paths such as `platform:/textures/fonts`, `platform:/textures/buttons_360`, `platform:/textures/hud`, `platform:/textures/skydome`, and `platform:/textures/fx_Rain`, plus repeated PPC `tw/td trap hit (type 22)` warnings. `common:/DATA/LOADINGSCREENS_360.DAT` also goes through the current `\Device\Harddisk0\partition0` resolution path and remains unresolved in the sampled log.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecomp/kernel/imports.cpp`,
+  `LibertyRecomp/patches/memcpy_patches.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`,
+  `.planning/`,
+  `docs/dev/`.
+
+Next small tasks:
+
+1. Trace the `platform:/textures/*` VFS misses with the real extracted directory.
+   Completion standard: identify whether those paths should resolve to extracted files, RPF archive contents, or a generated/embedded fallback.
+2. Trace `common:/DATA/LOADINGSCREENS_360.DAT` through `\Device\Harddisk0\partition0`.
+   Completion standard: map the current root-device normalization path and decide whether the VFS should translate this device prefix before file lookup.
+3. Trace repeated `tw/td trap hit (type 22)` warnings.
+   Completion standard: identify one generated function and guest condition producing the repeated trap, then decide whether it is expected polling/assert behavior or a real blocker.
+4. Keep the next behavior change ReXGlue-first.
+   Completion standard: if a project-side wrapper is involved, confirm the generated `__imp__` implementation and current wrapper behavior before editing; if VFS is involved, use existing VFS/root mapping APIs rather than ad hoc string hacks.
+5. Rebuild and run bounded smoke after the next minimal change.
+   Completion standard: Windows build succeeds and smoke either resolves/reclassifies the first resource path blocker or produces a clearly mapped next blocker.
+6. Commit and push the verified batch with `D:\Git\cmd\git.exe`, then continue immediately.
+   Completion standard: stage only scoped files, commit, push, and leave unrelated dirty entries untouched.
+
+Next stage entry condition:
+
+- Resume at Windows VFS/resource path bring-up after the ReXGlue GPU resource create restoration. Start with `platform:/textures/*`, `common:/DATA/LOADINGSCREENS_360.DAT`, and the repeated trap warnings.
+- Do not switch to Switch build work unless Windows changes require a scoped Switch regression check or the user explicitly redirects.
