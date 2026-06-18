@@ -2708,3 +2708,81 @@ Next stage entry condition:
 
 - Resume from graphics/resource bring-up after the vtable clear fix is committed and pushed.
 - Do not reintroduce global ReXGlue memory-store instrumentation unless a new root-cause investigation specifically requires it.
+
+## 2026-06-18 Windows Continuation 69: Graphics Null Classified As Vulkan Fallback
+
+Current mainline goal:
+
+- Continue Windows runtime bring-up after the vtable preservation fix.
+- Keep ReXGlue/Plume backend behavior as source evidence before editing GPU code.
+- Avoid treating host backend fallback logs as guest runtime blockers unless `Video::CreateHostDevice` actually fails.
+
+Completed in this batch:
+
+- Classified the smoke log sequence:
+  - `Trying graphics backend: D3D12.`
+  - `Trying graphics backend: Vulkan.`
+  - `volkInitialize failed with error code 0xFFFFFFFD.`
+  - `Graphics interface creation returned null.`
+  - `Trying graphics backend: D3D12.`
+- Source evidence from `LibertyRecomp/gpu/video.cpp`:
+  - `Video::CreateHostDevice` first tries D3D12 on Windows when `LIBERTY_RECOMP_D3D12` is enabled.
+  - In Auto mode, after a D3D12 device is created, the code may redirect AMD old-driver or Intel devices to Vulkan.
+  - If Vulkan interface creation returns null, the loop can retry D3D12.
+  - The function returns false only if `g_device == nullptr`.
+- Runtime evidence from the clean smoke:
+  - stdout contains `[Main] Video device created`.
+  - stderr does not contain `Graphics device creation returned null`.
+  - The run continues into guest initialization and reaches `sub_82125478 #1 EXIT`.
+- Build layout evidence:
+  - D3D12 support is enabled (`LIBERTY_RECOMP_D3D12=ON`).
+  - D3D12 runtime DLLs are present beside the executable:
+    `dxcompiler.dll`, `dxil.dll`, `D3D12/D3D12Core.dll`, and `D3D12/d3d12SDKLayers.dll`.
+
+Conclusion:
+
+- `Graphics interface creation returned null` in the current smoke is not the active runtime blocker.
+- It is a failed Vulkan fallback attempt after D3D12 was viable, most likely because the host Vulkan loader/runtime is unavailable in this environment.
+- Do not change GPU backend selection for this message alone. The next real boundary is resource/VFS behavior visible after video creation.
+
+Fresh verification:
+
+- Source inspection:
+  `LibertyRecomp/gpu/video.cpp:1990-2127` and `LibertyRecomp/main.cpp:2310-2318`.
+- Log inspection:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-out-preserve-vtbl-clean-3883b6ba-68c5-48bf-833e-146d4092516e.log`
+  and
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-smoke-err-preserve-vtbl-clean-3883b6ba-68c5-48bf-833e-146d4092516e.log`.
+- No code change was made for this classification.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage file:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_concurrentqueue.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_implot.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/thirdparty_plume.patch`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/tools_XenonRecomp.patch`,
+  `.planning/`,
+  `docs/dev/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this classification note.
+   Completion standard: only `CONTINUATION_GUIDE.md` is staged and remote branch reaches the new commit.
+2. Trace current resource/VFS misses.
+   Completion standard: explain why `platform:/rain.dds` and `platform:/rainanim.dds` return 0 in `sub_827E8180`, using VFS mapping and real content root evidence.
+3. Decide whether those two resources are optional, incorrectly mapped, or missing from the content layout.
+   Completion standard: if optional, record and move on; if incorrectly mapped, make one minimal VFS fix and smoke it.
+4. Run another bounded smoke after the next resource/VFS decision.
+   Completion standard: no precise exception keywords, no reintroduced `MISSING_FUNC`, and next blocker is classified by source/log evidence.
+
+Next stage entry condition:
+
+- Start at `sub_827E8180` resource path handling for `platform:/rain.dds` and `platform:/rainanim.dds`.
+- Keep graphics backend selection unchanged unless a future smoke actually fails `Video::CreateHostDevice`.
