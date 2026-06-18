@@ -177,6 +177,16 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `image_base=0x82000000`, `image_size=0x011F0000`, `pages=287`,
   `sections=13`, `executable_sections=2`, `writable_sections=6`,
   `import_libs=2`, and loaded import entries `247`.
+- The opt-in audit also logs import/export coverage for the temporary bridge
+  symbols:
+  - XAM UI functions at ordinals `0x02C6`, `0x02CB`, `0x02D5`, `0x02D9`,
+    and `0x02DC` have resolver table entries but are not resolver-implemented
+    and are not registered in the ReXGlue PPC function registry.
+  - XboxKrnl crypto/key functions at ordinals `0x0192`, `0x0256`, and
+    `0x0257` have resolver table entries but are not resolver-implemented and
+    are not registered in the ReXGlue PPC function registry.
+  - `ExThreadObjectType` at `xboxkrnl.exe:0x001B` is a variable export with a
+    resolver table entry but no variable mapping.
 - Guest main launch remains disabled because `LaunchModule()` is not called.
 - This is a module materialization audit only, not a playable state.
 
@@ -203,8 +213,10 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   metadata/pre-guest boundary first.
 - The post-`LoadXexImage()` module-state diagnostics are now verified while
   still keeping `LaunchModule()` disabled.
-- The next boundary is import/export coverage: the temporary sidecar import
-  bridge must be replaced or justified before guest main launch.
+- The import/export coverage diagnostics are now verified. The next boundary is
+  replacing the temporary sidecar import bridge, most likely by building/linking
+  a non-codegen-only ReXGlue kernel or adding real sidecar exports with recorded
+  rationale.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -326,14 +338,14 @@ Completion standard:
    Completion standard: only the sidecar and audit docs are staged, the commit
    message states the ReXGlue module materialization boundary, and the current
    codex branch is pushed.
-2. Classify the temporary import bridge before guest launch.
-   Completion standard: decide between a full non-codegen-only ReXGlue kernel
-   build and real sidecar export implementations, with the reason recorded.
-3. Add an export-coverage diagnostic around the eight bridge symbols and the
-   `ExThreadObjectType` variable import warning.
-   Completion standard: the sidecar records whether these are SDK-linkage debt,
-   GTA IV override debt, or true missing runtime exports before any
-   `LaunchModule()` attempt.
+2. Replace or remove the temporary import bridge before guest launch.
+   Completion standard: the sidecar links without
+   `LibertyRecompRex/src/pre_guest_import_bridges.cpp`, or the guide records why
+   a narrowly scoped real sidecar export remains necessary.
+3. Test a non-codegen-only ReXGlue kernel build/link path in isolation.
+   Completion standard: build/link evidence proves whether `xam_ui.cpp` and
+   `xboxkrnl_crypt.cpp` can replace the temporary bridge without modifying
+   thirdparty submodules or tracked generated sources.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module
    materialization/import bridge boundary is stable.

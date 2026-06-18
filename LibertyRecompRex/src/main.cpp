@@ -12,7 +12,9 @@
 
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
+#include <rex/ppc/function.h>
 #include <rex/runtime.h>
+#include <rex/system/export_resolver.h>
 #include <rex/system/user_module.h>
 #include <rex/system/util/xex2_info.h>
 
@@ -26,6 +28,30 @@ struct CommandLineOptions {
     std::filesystem::path game_root;
     bool audit_load_xex = false;
 };
+
+struct ExportCoverageCheck {
+    const char* module_name;
+    std::uint16_t ordinal;
+    const char* expected_name;
+    const char* direct_symbol;
+    const char* bridge_scope;
+    const char* source_scope;
+};
+
+const char* yes_no(const bool value) {
+    return value ? "yes" : "no";
+}
+
+const char* export_type_name(const rex::runtime::Export::Type type) {
+    switch (type) {
+    case rex::runtime::Export::Type::kFunction:
+        return "function";
+    case rex::runtime::Export::Type::kVariable:
+        return "variable";
+    default:
+        return "unknown";
+    }
+}
 
 const std::uint8_t* checked_range(const std::vector<std::uint8_t>& data,
                                   const std::size_t offset,
@@ -405,6 +431,63 @@ bool log_loaded_xex_state(rex::Runtime& runtime) {
     return true;
 }
 
+void log_export_coverage(rex::Runtime& runtime) {
+    auto* export_resolver = runtime.export_resolver();
+    if (export_resolver == nullptr) {
+        REXLOG_ERROR("XEX load audit: export-coverage missing export resolver");
+        return;
+    }
+
+    static constexpr std::array<ExportCoverageCheck, 9> kChecks{{
+        {"xam.xex", 0x02DC, "XamShowMessageBoxUIEx", "__imp__XamShowMessageBoxUIEx",
+         "temporary_sidecar_bridge", "ReXGlue xam/xam_ui.cpp"},
+        {"xam.xex", 0x02D5, "XamShowGamerCardUIForXUID", "__imp__XamShowGamerCardUIForXUID",
+         "temporary_sidecar_bridge", "ReXGlue xam/xam_ui.cpp"},
+        {"xam.xex", 0x02C6, "XamShowPlayerReviewUI", "__imp__XamShowPlayerReviewUI",
+         "temporary_sidecar_bridge", "ReXGlue xam/xam_ui.cpp"},
+        {"xam.xex", 0x02CB, "XamShowDeviceSelectorUI", "__imp__XamShowDeviceSelectorUI",
+         "temporary_sidecar_bridge", "ReXGlue xam/xam_ui.cpp"},
+        {"xam.xex", 0x02D9, "XamShowDirtyDiscErrorUI", "__imp__XamShowDirtyDiscErrorUI",
+         "temporary_sidecar_bridge", "ReXGlue xam/xam_ui.cpp"},
+        {"xboxkrnl.exe", 0x0257, "XeKeysConsoleSignatureVerification",
+         "__imp__XeKeysConsoleSignatureVerification", "temporary_sidecar_bridge",
+         "ReXGlue xboxkrnl/xboxkrnl_crypt.cpp"},
+        {"xboxkrnl.exe", 0x0192, "XeCryptSha", "__imp__XeCryptSha",
+         "temporary_sidecar_bridge", "ReXGlue xboxkrnl/xboxkrnl_crypt.cpp"},
+        {"xboxkrnl.exe", 0x0256, "XeKeysConsolePrivateKeySign",
+         "__imp__XeKeysConsolePrivateKeySign", "temporary_sidecar_bridge",
+         "ReXGlue xboxkrnl/xboxkrnl_crypt.cpp"},
+        {"xboxkrnl.exe", 0x001B, "ExThreadObjectType", nullptr,
+         "missing_variable_mapping", "ReXGlue xboxkrnl/xboxkrnl_module.cpp"},
+    }};
+
+    for (const auto& check : kChecks) {
+        auto* export_entry = export_resolver->GetExportByOrdinal(check.module_name, check.ordinal);
+        if (export_entry == nullptr) {
+            REXLOG_WARN(
+                "XEX load audit: export-coverage module={} ordinal=0x{:04X} expected={} resolver=missing bridge={} source={}",
+                check.module_name, check.ordinal, check.expected_name, check.bridge_scope,
+                check.source_scope);
+            continue;
+        }
+
+        const bool name_matches = std::string_view(export_entry->name) == check.expected_name;
+        const bool resolver_stub =
+            (export_entry->tags & rex::runtime::ExportTag::kStub) == rex::runtime::ExportTag::kStub;
+        const bool ppc_registered =
+            check.direct_symbol != nullptr && rex::FindPPCFuncByName(check.direct_symbol) != nullptr;
+        const std::uint32_t variable_ptr =
+            export_entry->type == rex::runtime::Export::Type::kVariable ? export_entry->variable_ptr : 0;
+
+        REXLOG_INFO(
+            "XEX load audit: export-coverage module={} ordinal=0x{:04X} expected={} resolver_name={} name_match={} type={} resolver_implemented={} resolver_stub={} variable=0x{:08X} ppc_registered={} bridge={} source={}",
+            check.module_name, check.ordinal, check.expected_name, export_entry->name,
+            yes_no(name_matches), export_type_name(export_entry->type),
+            yes_no(export_entry->is_implemented()), yes_no(resolver_stub), variable_ptr,
+            yes_no(ppc_registered), check.bridge_scope, check.source_scope);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -466,6 +549,7 @@ int main(int argc, char** argv) {
             rex::ShutdownLogging();
             return 5;
         }
+        log_export_coverage(runtime);
         REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
                     load_status);
     } else {

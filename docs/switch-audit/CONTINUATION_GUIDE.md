@@ -3887,3 +3887,100 @@ Next stage entry condition:
 - Do not call `LaunchModule()`.
 - Do not treat the temporary import bridge as a real runtime implementation.
 - Keep generated sources, thirdparty submodules, and Switch packaging untouched.
+
+## 2026-06-19 Windows Continuation 83: ReXGlue Import/Export Coverage Diagnostics
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue Windows-first ReXGlue takeover through the separate `LibertyRecompRex` sidecar.
+- Classify the temporary sidecar bridge and the `ExThreadObjectType` variable-import warning before any guest launch.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Confirmed the eight temporary bridge symbols in `LibertyRecompRex/src/pre_guest_import_bridges.cpp` map to ReXGlue source implementations or stubs:
+  - XAM UI bridge symbols live in `glue/rexglue-sdk-main/src/kernel/xam/xam_ui.cpp`.
+  - XboxKrnl crypto/key bridge symbols live in `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_crypt.cpp`.
+- Confirmed ReXGlue `src/kernel/CMakeLists.txt` removes exactly `xam/xam_ui.cpp` and `xboxkrnl/xboxkrnl_crypt.cpp` when `REXGLUE_CODEGEN_ONLY` is enabled.
+- Confirmed the current prebuilt `glue\rexglue-sdk-main\out\win-amd64\rexkernel.lib` contains `xam_module.cpp.obj`, `xboxkrnl_module.cpp.obj`, and `xboxkrnl_modules.cpp.obj`, but not `xam_ui.cpp.obj` or `xboxkrnl_crypt.cpp.obj`.
+- Confirmed `llvm-nm` does not report definitions for the eight `__imp__` bridge symbols in the current prebuilt `rexkernel.lib`.
+- Confirmed `ExThreadObjectType` is `xboxkrnl.exe` ordinal `0x001B`, type `kVariable`, from `xboxkrnl/export_table.inc`.
+- Confirmed `XboxkrnlModule` registers variable mappings for other loader variables but does not currently call `SetVariableMapping("xboxkrnl.exe", 0x001B, ...)`.
+- Used a smoke/log assertion as the TDD red test:
+  - ran `LibertyRecompRex.exe ... --audit-load-xex`,
+  - asserted that the log should contain `XEX load audit: export-coverage`,
+  - confirmed the assertion failed because export-coverage logging did not exist yet.
+- Added `log_export_coverage()` in `LibertyRecompRex/src/main.cpp`.
+- The diagnostic queries only public ReXGlue state:
+  - `runtime.export_resolver()`,
+  - `ExportResolver::GetExportByOrdinal()`,
+  - `Export::type`, `tags`, `is_implemented()`, `variable_ptr`,
+  - `rex::FindPPCFuncByName()` for SDK-registered PPC function implementations.
+- The diagnostic runs only after opt-in `LoadXexImage()` succeeds; the default sidecar path remains pre-load.
+- The opt-in path still does not call `LaunchModule()`.
+
+Fresh verification:
+
+- TDD red command:
+  ran `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex` and asserted `XEX load audit: export-coverage`.
+- TDD red result:
+  expected failure, `TDD_RED_PASS export-coverage log missing as expected`.
+- Source/archive evidence commands:
+  - `rg` over `glue/rexglue-sdk-main` and project sources for the eight bridge symbols plus `ExThreadObjectType`,
+  - `llvm-lib.exe /list glue\rexglue-sdk-main\out\win-amd64\rexkernel.lib`,
+  - `llvm-nm.exe glue\rexglue-sdk-main\out\win-amd64\rexkernel.lib` filtered for the eight `__imp__` symbols.
+- Source/archive evidence result:
+  `xam_ui.cpp` and `xboxkrnl_crypt.cpp` are excluded by the codegen-only source list and absent from the current archive; the eight `__imp__` bridge symbols are not defined by the current prebuilt `rexkernel.lib`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`, `llvm-objdump`, or `objdump` remained.
+- Default sidecar smoke command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; log assertions confirmed `Audit LoadXexImage: no`, `XEX load audit: skipped`, no `XEX load audit: export-coverage`, and no `Loading XEX image:`.
+- Opt-in LoadXex/export-coverage command:
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest\LibertyRecompRex\LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in LoadXex/export-coverage result:
+  exit code `0`; log assertions confirmed coverage rows for:
+  `XamShowMessageBoxUIEx`, `XamShowGamerCardUIForXUID`, `XamShowPlayerReviewUI`, `XamShowDeviceSelectorUI`, `XamShowDirtyDiscErrorUI`, `XeKeysConsoleSignatureVerification`, `XeCryptSha`, `XeKeysConsolePrivateKeySign`, and `ExThreadObjectType`.
+- Observed export coverage result:
+  - all eight function exports have resolver table entries with matching names but `resolver_implemented=no`, `resolver_stub=no`, `ppc_registered=no`, and `bridge=temporary_sidecar_bridge`;
+  - `ExThreadObjectType` has `type=variable`, `resolver_implemented=no`, `variable=0x00000000`, and `bridge=missing_variable_mapping`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- No Switch build was run in this batch because Switch remains paused and no Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this import/export coverage diagnostics stage.
+   Completion standard: only the allowed current-stage files are staged, commit message states the Windows/ReXGlue export coverage boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Test a non-codegen-only ReXGlue kernel link path without touching tracked generated sources or thirdparty submodules.
+   Completion standard: either prove a locally built/linkable `rexkernel` includes `xam_ui.cpp.obj` and `xboxkrnl_crypt.cpp.obj`, or record the exact build/link blocker.
+3. Remove `LibertyRecompRex/src/pre_guest_import_bridges.cpp` only after a replacement is verified.
+   Completion standard: sidecar links and smoke tests pass without the bridge file, or the guide records why a real sidecar export file is still needed.
+4. Keep Vulkan-first graphics work behind the module/import boundary.
+   Completion standard: no runtime graphics backend is enabled until bridge/export coverage is stable.
+
+Next stage entry condition:
+
+- Start with a non-codegen-only ReXGlue kernel build/link experiment in an isolated build output.
+- Do not call `LaunchModule()`.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.
