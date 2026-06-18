@@ -23,6 +23,8 @@ The built ReXGlue CLI is usable now for experiments: `...\bin\rexglue.exe --vers
 
 Fresh ReXGlue binary smoke on 2026-06-17: copied `gta4_config.toml` to `%TEMP%`, rewrote `file_path`, `patched_file_path`, and `out_directory_path` to temporary/absolute paths, and ran `rexglue --force codegen <temp-config>`. Result: exit `0`, generated `86` files in `C:\Users\JELLYB~1\AppData\Local\Temp\rexglue-codegen-smoke-cc7eaf6f-1dbf-429b-8209-26ae79dbbe7a\generated`, and completed in `45.6s`. The CLI migrated the old config to a temp `gta4_manifest.toml`, warned that legacy `patched_file_path` is no longer used, reported several current config addresses not in any code region, emitted unresolved branch diagnostics, and generated a stub for `0x82A77E28`. Treat these as diff/audit inputs before any tracked generated-code refresh.
 
+GTA IV-scale codegen memory-pressure note: `docs/dev/REVERSE_ENGINEERING_TOOLS.md` records OZORDI/XenonRecomp commit `207253d67cdef67235805d595999fa0a2e4fcbd9`, which fixed unbounded memory growth caused by `static` local scratch containers inside `Recompile()`. If future XenonRecomp/ReXGlue codegen runs OOM or grows for hours, audit per-function scratch `std::string`, `std::vector`, and `std::unordered_set` use before changing generated output.
+
 ## Current Stage Goal
 
 Mainline work has pivoted back to Windows runtime / unfinished upstream code. Switch work remains paused at the verified pre-guest baseline and should be used only for regression checks, packaging/content-layout fixes, or deliberately scoped pre-guest blockers.
