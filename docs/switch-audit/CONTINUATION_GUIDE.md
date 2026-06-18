@@ -3145,3 +3145,79 @@ Next stage entry condition:
 - Do not continue implementation until the important ReXGlue refs are reviewed and summarized.
 - Keep the next code edit narrow and evidence-driven.
 - Keep Switch at the default LibertyRecompExeFs / NSP-like audit package baseline unless the next boundary explicitly needs Switch regression.
+
+## 2026-06-19 Windows/Switch Continuation 74: ReXGlue Reference Review
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Use the local ReXGlue refs to choose the next Windows runtime direction before more implementation work.
+- Do not claim Switch or Windows playability from this research stage.
+
+Completed in this batch:
+
+- Created `docs/switch-audit/REXGLUE_REFERENCE_REVIEW.md`.
+- Deepened the `skate3recomp` read beyond the earlier first pass:
+  - confirmed the complete ReXGlue app shape around `rex::ReXApp`, `REX_DEFINE_APP`, `rex::runtime`, `rexglue_configure_target()`, generated-source CMake targets, manifest templates, ISO/title-update installers, VFS overlays, DLC/content installation, runtime dispatcher hooks, and deliberate generated-source post-patches.
+  - recorded what is adoptable and what is game/fork-specific.
+- Reviewed `TheOutFit`:
+  - confirmed a generated `rexglue.cmake` / `rexglue_setup_target()` app structure,
+  - recorded its manual function/switch-table ledger pattern,
+  - recorded its ReXGlue SDK patch classification pattern and watchdog diagnostics.
+- Reviewed `bo2-recompiled`:
+  - confirmed separate `default` and `default_mp` ReXGlue projects,
+  - recorded app lifecycle patterns for update roots, runtime cvars, alternate XEX loading, and centralized XAM/network overrides.
+- Reviewed `TDURE`:
+  - confirmed it is useful mainly as a minimal ReXGlue template reference.
+- Compared those refs against the current LibertyRecomp / GTA IV structure:
+  - GTA IV generated sources already exist under `glue/rexglue-sdk-main/gta4-recomp/generated`.
+  - The generated config exports `PPCImageConfig`.
+  - The current build wraps generated sources in `LibertyRecompLib` and links them into the legacy `LibertyRecomp` executable.
+  - `LibertyRecomp/main.cpp` remains a legacy bootstrap with Switch audit gates, not a clean `ReXApp` entrypoint.
+  - `LibertyRecomp/app.cpp` remains placeholder-style app glue.
+
+Decision:
+
+- The next implementation direction should not be another broad legacy-shell patch.
+- Recommended next code boundary is a separate ReXGlue-aligned Windows prototype target for GTA IV:
+  - start from a minimal `Gta4ReXApp : rex::ReXApp`,
+  - use existing generated `PPCImageConfig` and generated sources,
+  - keep the current legacy executable as a short-term smoke harness,
+  - do not move Switch to this path until Windows proves it reaches an equal or better bring-up boundary.
+
+Fresh verification:
+
+- This batch is documentation/research only; no runtime source, build system source, generated code, or thirdparty files were edited.
+- Verification before commit should include:
+  - `git diff --check -- docs/switch-audit/REXGLUE_REFERENCE_REVIEW.md docs/switch-audit/CONTINUATION_GUIDE.md`
+  - `git status --short --branch`
+- No Windows/Switch rebuild is required for this docs-only stage; the latest runtime verification remains the Continuation 73 Windows smoke plus Switch ExeFS/Ryujinx baseline.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/REXGLUE_REFERENCE_REVIEW.md`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this refs-review documentation stage.
+   Completion standard: only `REXGLUE_REFERENCE_REVIEW.md` and `CONTINUATION_GUIDE.md` are staged, commit message states the ReXGlue reference review boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Start the ReXGlue-aligned Windows prototype planning boundary.
+   Completion standard: inspect the current ReXGlue SDK helper/API shape and choose the smallest target/file layout without editing runtime behavior.
+3. Add the prototype only if the plan can isolate it from the current Switch baseline.
+   Completion standard: the existing `LibertyRecomp` target remains buildable, Switch audit options remain untouched, and the prototype is Windows-only until proven.
+4. Continue content/RPF work as a separate boundary after app-shell alignment is scoped.
+   Completion standard: GTA IV loose/RPF2 content preparation remains explicit and does not get hidden inside unrelated app-shell changes.
+
+Next stage entry condition:
+
+- Begin with a Windows-only ReXGlue app-shell prototype plan, not Switch runtime work.
+- Do not edit `LibertyRecomp/kernel/imports.cpp`, `kernel/memory.cpp`, or Switch packaging during the planning step.
+- Keep the next code edit narrow and reversible; no broad migration until the sidecar target compiles or fails with a recorded blocker.
