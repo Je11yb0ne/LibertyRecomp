@@ -5279,3 +5279,139 @@ Next stage entry condition:
   committed and pushed.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 94: Tool-Mode Video Null Guard Overlay
+
+Current mainline goal:
+
+- Keep Switch paused and use it only as a later migration/regression reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Clear the first-launch null read inside ReXGlue's early video export wrapper
+  without enabling graphics or Vulkan runtime work yet.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- TDD red full-root `--audit-launch-module` run still exited `8` and showed:
+  - `Runtime initialized in tool mode (no GPU)`,
+  - `pc_rva=0x0413B537`,
+  - `fault=0x0000000000000000 access=read`.
+- The previous stage's map classification put `pc_rva=0x0413B537` inside the
+  host-to-guest wrapper for `VdSetGraphicsInterruptCallback_entry` from
+  `rexkernel:xboxkrnl_video.cpp.obj`.
+- The vendored ReXGlue video wrapper directly dereferenced
+  `kernel_state()->emulator()->graphics_system()` in:
+  - `VdSetGraphicsInterruptCallback_entry`,
+  - `VdInitializeRingBuffer_entry`,
+  - `VdEnableRingBufferRPtrWriteBack_entry`.
+- `Runtime initialized in tool mode (no GPU)` proves that this sidecar path has
+  no graphics system installed yet.
+- The newer local ReXGlue reference at
+  `work\refs\rexglue-sdk\src\kernel\xboxkrnl\xboxkrnl_video.cpp` returns early
+  in all three of those wrappers when `graphics_system` is null.
+
+Completed in this batch:
+
+- Added `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_video.cpp` directly
+  to the `LibertyRecompRex` target.
+- This overlays the stale video object in the prebuilt `rexkernel.lib` for the
+  sidecar only, matching the existing `xboxkrnl_io_info.cpp` overlay pattern.
+- Ported the newer ReXGlue null guards into the vendored video wrapper for:
+  - `VdSetGraphicsInterruptCallback_entry`,
+  - `VdInitializeRingBuffer_entry`,
+  - `VdEnableRingBufferRPtrWriteBack_entry`.
+- Did not enable a graphics system, Vulkan, gameplay rendering, Switch
+  packaging, or broad renderer work.
+- Did not modify generated GTA IV sources or thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - exit code `8`,
+  - `Runtime initialized in tool mode (no GPU)`,
+  - `pc_rva=0x0413B537`,
+  - `fault=0x0000000000000000 access=read`.
+- TDD red result:
+  `TDD_RED_PASS video_null_guard_missing exit=8 pc_rva=0x0413B537`.
+- Green build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Green build result:
+  succeeded after CMake regeneration and compiled
+  `xboxkrnl_video.cpp` into `LibertyRecompRex`.
+- TDD green command:
+  same full-root gated launch command, with assertions requiring:
+  - no `pc_rva=0x0413B537`,
+  - `Runtime::LaunchModule` still reached,
+  - `Stub XFileSectorInformation!` still present,
+  - no `NtQueryInformationFile(XFileSectorInformation) unimplemented`
+    regression.
+- TDD green result:
+  `VIDEO_NULL_GUARD_GREEN_PASS exit=8`.
+- New blocker evidence:
+  the first structured exception moved to
+  `pc_rva=0x031FE80A fault=0x0000000100000000 access=read`.
+- New blocker map classification:
+  - target `Rva+Base=0x1431FE80A`,
+  - nearest previous symbol `__imp__sub_82805578`,
+  - previous object `LibertyRecompLib:gta4_recomp.53.cpp.obj`,
+  - previous symbol delta `0x2AA`,
+  - nearest next symbol `__imp__sub_82805610`,
+  - next symbol delta `0x846`.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`,
+  `ninja ... LibertyRecomp`, default sidecar run, `--audit-load-xex`, and
+  full-root `--audit-launch-module`.
+- Final verification result:
+  `FINAL_VERIFICATION_PASS`.
+- Final default sidecar result:
+  exit code `0`, staged `assets\default.xex` mounted, XEX preflight passed, no
+  `Runtime::LaunchModule`, no `pc_rva=`, and no
+  `Stub XFileSectorInformation!`.
+- Final `--audit-load-xex` result:
+  exit code `0`, `LoadXexImage returned 00000000; LaunchModule skipped`, no
+  `Runtime::LaunchModule`, no `pc_rva=`, and no sector-info stub.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, keeps the
+  `XFileSectorInformation` overlay green, no longer logs
+  `pc_rva=0x0413B537`, and now stops at
+  `pc_rva=0x031FE80A fault=0x0000000100000000 access=read`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/CMakeLists.txt`,
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_video.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this video-null-guard overlay stage.
+   Completion standard: only the sidecar CMake file, the vendored ReXGlue video
+   wrapper, and audit docs are staged; the commit message states the
+   Windows/ReXGlue video null-guard boundary; branch
+   `codex/switch-audit-20260615` is pushed.
+2. Classify the new generated-code null/read blocker around
+   `__imp__sub_82805578`.
+   Completion standard: identify whether the fault at
+   `0x0000000100000000` is guest memory/page backing, generated dispatch,
+   missing vtable/function restoration, or another ReXGlue runtime state issue.
+3. Keep Vulkan-first renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the generated-code
+   null/read blocker is classified and the sidecar runtime boundary is stable.
+
+Next stage entry condition:
+
+- Re-read this guide after the commit and push.
+- Do not change generated GTA IV source or ReXGlue graphics runtime ownership
+  until the current video null-guard overlay is committed and pushed.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
