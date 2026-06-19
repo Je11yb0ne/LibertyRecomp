@@ -274,6 +274,21 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `XThread` before returning. Any direct-runtime first-launch attempt must
   therefore log returned thread metadata immediately and treat it as
   post-resume evidence, not a suspended pre-resume hook.
+- The first real `Runtime::LaunchModule()` attempt is now enabled only behind
+  `--audit-launch-module`. It records returned `XThread` metadata and PPC
+  context state, uses a measured bounded observation window, flushes logs, and
+  exits with audit code `8` if the main guest thread is still running after the
+  observation window. Default and `--audit-load-xex` remain non-launching.
+- With the sidecar's current default assets root, first launch reaches
+  `XThread::Execute - Calling function at 829A0860`, then fails the first
+  observed content lookup for `game:\common.rpf` (`0xc000000f`) because that
+  assets directory only contains `default.xex` and `default_v8.xex`. The
+  failure-capture observer also logs an access violation at host fault
+  `0x0000000100000000` with access `write`, and the bounded audit exits with
+  code `8`.
+- A fuller local GTA IV root is available for the next run:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`, containing
+  `default.xex`, `common.rpf`, and `xbox360.rpf`.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -391,19 +406,18 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the first-launch failure-capture observer boundary.
+1. Commit and push the first gated launch attempt boundary.
    Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
-   staged; the commit message states the Windows/ReXGlue observer
+   staged; the commit message states the Windows/ReXGlue first-launch
    boundary; the current codex branch is pushed.
-2. Enable the first real `Runtime::LaunchModule()` attempt only behind
-   `--audit-launch-module`.
-   Completion standard: default and `--audit-load-xex` remain non-launching,
-   and the gated run records either `XThread` creation, first guest PC, first
-   import call, structured exception, process exit code, or a bounded hang.
-3. If `LaunchModule()` returns an `XThread`, log thread metadata immediately.
-   Completion standard: record `thread_id`, `pcr`, `start`, `startup`,
-   `context`, `stack_size`, `flags`, and `running`; note that the current SDK
-   has already resumed the thread before returning.
+2. Rerun the gated launch with the fuller local GTA IV root:
+   `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+   Completion standard: record whether `game:\common.rpf` clears and capture
+   the next blocker with bounded process/log evidence.
+3. If the next blocker is content-root/VFS layout, document the Windows sidecar
+   game-root layout before adding runtime stubs.
+   Completion standard: default.xex, common.rpf, xbox360.rpf, audio/data, and
+   any extracted/loose-file requirements are assigned to concrete host paths.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, and first-launch failure-capture boundary is

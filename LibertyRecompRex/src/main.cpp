@@ -1,7 +1,9 @@
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -9,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -22,12 +25,15 @@
 #include <rex/system/user_module.h>
 #include <rex/system/util/xex2_info.h>
 #include <rex/system/xobject.h>
+#include <rex/system/xthread.h>
 
 #include "gta4_config.h"
 
 namespace {
 
 constexpr const char* kDefaultXexVirtualPath = "game:\\default.xex";
+constexpr std::chrono::milliseconds kFirstLaunchObservationWindow{2000};
+constexpr int kFirstLaunchTimeoutExitCode = 8;
 
 struct CommandLineOptions {
     std::filesystem::path game_root;
@@ -576,17 +582,17 @@ bool install_exthread_object_type_mapping(rex::Runtime& runtime) {
 bool log_first_launch_gate(rex::Runtime& runtime) {
     auto* kernel_state = runtime.kernel_state();
     if (kernel_state == nullptr) {
-        REXLOG_ERROR("First-launch audit: requested=yes gate=disabled missing kernel state");
+        REXLOG_ERROR("First-launch audit: requested=yes gate=enabled missing kernel state");
         return false;
     }
 
     const auto module = kernel_state->GetExecutableModule();
     if (!module) {
-        REXLOG_ERROR("First-launch audit: requested=yes gate=disabled missing executable module");
+        REXLOG_ERROR("First-launch audit: requested=yes gate=enabled missing executable module");
         return false;
     }
 
-    REXLOG_WARN("First-launch audit: requested=yes gate=disabled; LaunchModule skipped");
+    REXLOG_WARN("First-launch audit: requested=yes gate=enabled; Runtime::LaunchModule will be called");
     REXLOG_INFO(
         "First-launch audit: pre-launch module name={} entry=0x{:08X} stack=0x{:08X} hmodule=0x{:08X} title=0x{:08X}",
         module->name(), module->entry_point(), module->stack_size(), module->hmodule_ptr(),
@@ -594,8 +600,69 @@ bool log_first_launch_gate(rex::Runtime& runtime) {
     REXLOG_INFO(
         "First-launch audit: next proof target=host-thread-create-or-first-guest-pc capture=sidecar-log-and-process-exit");
     REXLOG_INFO(
-        "First-launch audit: capture plan process_exit_code=caller structured_exception=planned last_log_line=LibertyRecompRex.log guest_entry_pc=0x{:08X} host_thread_create=planned first_import_call=planned",
+        "First-launch audit: capture plan process_exit_code=caller-or-bounded-exit structured_exception=observer last_log_line=LibertyRecompRex.log guest_entry_pc=0x{:08X} host_thread_create=Runtime::LaunchModule first_import_call=bridge-or-generated-log",
         module->entry_point());
+    return true;
+}
+
+void log_launch_thread_snapshot(std::string_view label, rex::system::XThread& thread) {
+    const auto* params = thread.creation_params();
+    auto* thread_state = thread.thread_state();
+    auto* ctx = thread_state != nullptr ? thread_state->context() : nullptr;
+
+    REXLOG_INFO(
+        "First-launch audit: {} thread_id={} pcr=0x{:08X} start=0x{:08X} startup=0x{:08X} context=0x{:08X} stack_size=0x{:08X} flags=0x{:08X} running={} ctx_present={}",
+        label, thread.thread_id(), thread.pcr_ptr(), params->start_address,
+        params->xapi_thread_startup, params->start_context, params->stack_size,
+        params->creation_flags, yes_no(thread.is_running()), yes_no(ctx != nullptr));
+
+    if (ctx == nullptr) {
+        return;
+    }
+
+    REXLOG_INFO(
+        "First-launch audit: {} ppc_context lr=0x{:08X} ctr=0x{:08X} r1=0x{:08X} r3=0x{:08X} r13=0x{:08X}",
+        label, static_cast<std::uint32_t>(ctx->lr), ctx->ctr.u32, ctx->r1.u32, ctx->r3.u32,
+        ctx->r13.u32);
+}
+
+bool run_first_launch_attempt(rex::Runtime& runtime) {
+    if (!log_first_launch_gate(runtime)) {
+        return false;
+    }
+
+    REXLOG_WARN("First-launch audit: calling Runtime::LaunchModule");
+    flush_rex_loggers();
+
+    auto main_thread = runtime.LaunchModule();
+    if (!main_thread) {
+        REXLOG_ERROR("First-launch audit: Runtime::LaunchModule returned null");
+        flush_rex_loggers();
+        return false;
+    }
+
+    log_launch_thread_snapshot("launch-return", *main_thread);
+    flush_rex_loggers();
+
+    const auto observation_start = std::chrono::steady_clock::now();
+    std::this_thread::sleep_for(kFirstLaunchObservationWindow);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - observation_start)
+                                .count();
+    log_launch_thread_snapshot("post-observation", *main_thread);
+
+    if (main_thread->is_running()) {
+        REXLOG_WARN(
+            "First-launch audit: bounded observation elapsed_ms={} running=yes process_exit_code={} reason=guest-thread-left-running",
+            elapsed_ms, kFirstLaunchTimeoutExitCode);
+        flush_rex_loggers();
+        std::_Exit(kFirstLaunchTimeoutExitCode);
+    }
+
+    REXLOG_INFO(
+        "First-launch audit: bounded observation elapsed_ms={} running=no process_exit_code=caller",
+        elapsed_ms);
+    flush_rex_loggers();
     return true;
 }
 
@@ -674,7 +741,7 @@ int main(int argc, char** argv) {
     REXLOG_INFO("  Game root: {}", game_root_string);
     REXLOG_INFO("  Log path:  {}", log_path_string);
     REXLOG_INFO("  Audit LoadXexImage: {}", options.audit_load_xex ? "yes" : "no");
-    REXLOG_INFO("  Audit LaunchModule: {}", options.audit_launch_module ? "requested-disabled" : "no");
+    REXLOG_INFO("  Audit LaunchModule: {}", options.audit_launch_module ? "requested-gated" : "no");
 
     rex::RuntimeConfig config;
     config.tool_mode = true;
@@ -729,14 +796,15 @@ int main(int argc, char** argv) {
         log_export_coverage(runtime);
         if (options.audit_launch_module) {
             first_launch_failure_capture.Install();
-            if (!log_first_launch_gate(runtime)) {
+            if (!run_first_launch_attempt(runtime)) {
                 runtime.Shutdown();
                 rex::ShutdownLogging();
                 return 7;
             }
+        } else {
+            REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
+                        load_status);
         }
-        REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
-                    load_status);
     } else {
         REXLOG_INFO("XEX load audit: skipped; pass --audit-load-xex to cross module-load boundary");
     }

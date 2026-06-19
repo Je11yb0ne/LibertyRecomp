@@ -4756,3 +4756,140 @@ Next stage entry condition:
 - Do not make default or `--audit-load-xex` launch guest code.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 90: First Gated Launch Attempt
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Cross the first real ReXGlue `Runtime::LaunchModule()` boundary only behind
+  `--audit-launch-module`.
+- Keep default and `--audit-load-xex` as non-launching regression paths.
+- Do not claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Changed `--audit-launch-module` from a disabled gate into a real gated launch
+  attempt.
+- The sidecar now logs `Audit LaunchModule: requested-gated`.
+- The first-launch capture plan now records:
+  - `process_exit_code=caller-or-bounded-exit`,
+  - `structured_exception=observer`,
+  - `guest_entry_pc=0x829A0860`,
+  - `host_thread_create=Runtime::LaunchModule`,
+  - `first_import_call=bridge-or-generated-log`.
+- The launch path installs `FirstLaunchFailureCapture`, calls
+  `Runtime::LaunchModule()`, then logs the returned `XThread` metadata.
+- The logged thread metadata includes `thread_id`, `pcr`, `start`, `startup`,
+  `context`, `stack_size`, `flags`, `running`, and whether a PPC context is
+  present.
+- The logged PPC context snapshot includes `lr`, `ctr`, `r1`, `r3`, and `r13`.
+- The observation window uses a measured wall-clock `elapsed_ms`; the requested
+  sleep is `2000ms`, but logs record the actual elapsed time because guest
+  startup can delay the observer thread.
+- If the main `XThread` is still running after the observation window, the
+  sidecar flushes ReXGlue logs and exits with process code `8`. This is an
+  intentional audit exit to avoid hanging the Codex/Ryujinx-style harness.
+- Default and `--audit-load-xex` still do not call `LaunchModule()`.
+- Did not modify generated sources, thirdparty submodules, Switch packaging, or
+  the prebuilt ReXGlue libraries.
+
+Fresh verification and first-launch evidence:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+  with a log assertion requiring
+  `First-launch audit: calling Runtime::LaunchModule`.
+- TDD red result:
+  expected failure,
+  `TDD_RED_PASS LaunchModule call still disabled while failure-capture observer baseline exists`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- First gated launch command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+  launched by a PowerShell harness with a 15-second external timeout.
+- First gated launch result:
+  process exited with intentional audit code `8`; the external timeout did not
+  kill it.
+- First gated launch log evidence:
+  - `First-launch audit: calling Runtime::LaunchModule`,
+  - `KernelState: Launching module...`,
+  - `launch-return thread_id=2 ... start=0x829A0860 ... running=yes ctx_present=yes`,
+  - `XThread::Execute - Calling function at 829A0860`,
+  - `VFS: 'game:\common.rpf' ... [entry not found]`,
+  - `[NtCreateFile] FAILED: path='game:\common.rpf' -> 0xc000000f`,
+  - `structured exception observed sequence=1 code=access_violation ... fault=0x0000000100000000 access=write`,
+  - secondary guest threads reached `XThread::Execute - Calling function at 829B08E0`,
+  - `post-observation ... running=yes`,
+  - `bounded observation elapsed_ms=5485 running=yes process_exit_code=8 reason=guest-thread-left-running`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar regression:
+  exit code `0`, no observer, no launch.
+- `--audit-load-xex` sidecar regression:
+  exit code `0`, no observer, export coverage still logs, and
+  `LaunchModule skipped`.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Content-root evidence:
+
+- The sidecar default assets directory currently contains only:
+  `default.xex` and `default_v8.xex`.
+- It does not contain `common.rpf` or `xbox360.rpf`.
+- A fuller local GTA IV root exists at:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- That root contains:
+  - `default.xex` size `11841536`,
+  - `common.rpf` size `17223680`,
+  - `xbox360.rpf` size `60323840`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this first gated launch attempt stage.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs
+   are staged, the commit message states the Windows/ReXGlue first-launch
+   boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Rerun `--audit-launch-module` with the fuller GTA IV root:
+   `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+   Completion standard: record whether the `common.rpf` blocker clears and
+   capture the next guest/function/content/runtime blocker with the same
+   bounded harness.
+3. If the next blocker is content-root/VFS layout, update the Windows sidecar
+   content layout rather than adding runtime stubs.
+   Completion standard: the documented game root explains which files are
+   expected beside `default.xex`.
+4. If the next blocker is a missing import or invalid/unregistered function,
+   use ReXGlue refs and IDA/MCP only as needed to prove the address before
+   adding a minimal hook/manual-function/codegen change.
+5. Keep Vulkan-first work as a later boundary.
+   Completion standard: do not enable runtime graphics until the first-launch
+   content/runtime blocker chain is clearer.
+
+Next stage entry condition:
+
+- Start by committing and pushing this first-launch stage.
+- Then rerun the gated launch with the fuller local GTA IV root.
+- Do not make default or `--audit-load-xex` launch guest code.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.
