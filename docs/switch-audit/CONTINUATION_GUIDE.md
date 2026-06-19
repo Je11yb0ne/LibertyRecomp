@@ -4512,3 +4512,104 @@ Next stage entry condition:
 - Do not make default or `--audit-load-xex` launch guest code.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 88: First-Launch Capture Plan Log
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Harden the disabled `--audit-launch-module` gate with explicit capture
+  fields before any real guest launch is enabled.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Added a structured capture-plan log line to `log_first_launch_gate(...)`.
+- The capture plan records:
+  - `process_exit_code=caller`,
+  - `structured_exception=planned`,
+  - `last_log_line=LibertyRecompRex.log`,
+  - `guest_entry_pc=0x829A0860`,
+  - `host_thread_create=planned`,
+  - `first_import_call=planned`.
+- The capture-plan log is emitted only when `--audit-launch-module` is passed.
+- Default and `--audit-load-xex` paths remain non-launching and do not emit the
+  first-launch capture-plan line.
+- Did not modify generated sources, thirdparty submodules, Switch packaging, or
+  the prebuilt ReXGlue libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+  with a log assertion requiring the structured capture-plan line.
+- TDD red result:
+  expected failure, `TDD_RED_PASS failure-capture plan missing while disabled gate exists`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  reran `LibertyRecompRex.exe ... --audit-launch-module` and asserted:
+  - disabled first-launch gate log exists,
+  - capture-plan log contains all planned fields,
+  - no `KernelState: Launching module`,
+  - no `Launching module...`.
+- TDD green result:
+  `TDD_GREEN_PASS first-launch failure-capture plan verified without LaunchModule`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Sidecar smoke matrix:
+  - default run: exit code `0`, `Audit LoadXexImage: no`,
+    `Audit LaunchModule: no`, no capture plan, and no `LaunchModule()` logs;
+  - `--audit-load-xex`: exit code `0`, export coverage still logs, no capture
+    plan, and no `LaunchModule()` logs;
+  - `--audit-launch-module`: exit code `0`, disabled gate log and capture-plan
+    log both present, and no `LaunchModule()` logs.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this first-launch capture-plan stage.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs
+   are staged, the commit message states the Windows/ReXGlue capture-plan
+   boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Add real failure-capture mechanics before enabling launch.
+   Completion standard: implement or document the exact mechanism for
+   structured exception capture, last-log preservation, host thread creation
+   observation, and guest entry PC reporting around a future `LaunchModule()`
+   call.
+3. Enable `LaunchModule()` only behind `--audit-launch-module` after capture
+   mechanics are verified.
+   Completion standard: default and `--audit-load-xex` remain non-launching,
+   and the first real launch attempt has fresh crash/failure evidence.
+4. Keep Vulkan-first work as a later boundary.
+   Completion standard: do not enable runtime graphics until first-launch
+   failure capture and module-entry behavior are understood.
+
+Next stage entry condition:
+
+- Start by implementing or proving the failure-capture mechanics for the
+  existing `--audit-launch-module` gate.
+- Do not make default or `--audit-load-xex` launch guest code.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

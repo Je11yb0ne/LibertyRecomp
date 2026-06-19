@@ -256,6 +256,13 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `host-thread-create-or-first-guest-pc`, but it deliberately does not call
   `KernelState::LaunchModule()`. Default and `--audit-load-xex` runs remain
   non-launching.
+- The disabled first-launch gate now also logs a structured capture plan:
+  `process_exit_code=caller`, `structured_exception=planned`,
+  `last_log_line=LibertyRecompRex.log`, `guest_entry_pc=0x829A0860`,
+  `host_thread_create=planned`, and `first_import_call=planned`. These are
+  planned capture fields only; real structured exception / host-thread /
+  first-import capture mechanics still need to be implemented before enabling
+  `LaunchModule()`.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -373,15 +380,16 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the disabled first-launch gate boundary.
+1. Commit and push the first-launch capture-plan boundary.
    Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
-   staged; the commit message states the Windows/ReXGlue disabled-launch-gate
+   staged; the commit message states the Windows/ReXGlue capture-plan
    boundary; the current codex branch is pushed.
-2. Add first-launch failure-capture hardening before enabling the gate.
-   Completion standard: record the exact evidence that will be captured on a
-   real launch attempt: process exit code, structured exception code, last
-   ReXGlue log line, guest entry PC, host thread creation, or first imported
-   function call.
+2. Implement or prove first-launch failure-capture mechanics before enabling
+   the gate.
+   Completion standard: structured exception capture, last-log preservation,
+   host thread creation observation, guest entry PC reporting, and first
+   imported function call capture are either implemented or explicitly recorded
+   as unavailable with the next substitute evidence.
 3. Enable `LaunchModule()` only behind `--audit-launch-module` after failure
    capture is verified.
    Completion standard: default and `--audit-load-xex` remain non-launching,

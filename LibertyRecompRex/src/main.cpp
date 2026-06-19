@@ -506,6 +506,9 @@ bool log_first_launch_gate(rex::Runtime& runtime) {
         module->title_id());
     REXLOG_INFO(
         "First-launch audit: next proof target=host-thread-create-or-first-guest-pc capture=sidecar-log-and-process-exit");
+    REXLOG_INFO(
+        "First-launch audit: capture plan process_exit_code=caller structured_exception=planned last_log_line=LibertyRecompRex.log guest_entry_pc=0x{:08X} host_thread_create=planned first_import_call=planned",
+        module->entry_point());
     return true;
 }
 
