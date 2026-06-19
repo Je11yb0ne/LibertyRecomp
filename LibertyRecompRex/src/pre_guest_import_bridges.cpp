@@ -1,16 +1,15 @@
 #include <rex/ppc/function.h>
 
-namespace {
-constexpr const char* kBridgeNote =
-    "pre-guest ReXGlue sidecar import bridge; replace with full SDK export before launch";
-}
+// Sidecar-only registered exports for the current codegen-only rexkernel.lib.
+// Replace these with full ReXGlue SDK exports or GTA IV-specific overrides
+// before allowing LaunchModule().
 
-PPC_STUB_LOG(__imp__XamShowMessageBoxUIEx, kBridgeNote)
-PPC_STUB_LOG(__imp__XamShowGamerCardUIForXUID, kBridgeNote)
-PPC_STUB_LOG(__imp__XamShowPlayerReviewUI, kBridgeNote)
-PPC_STUB_LOG(__imp__XamShowDeviceSelectorUI, kBridgeNote)
-PPC_STUB_LOG(__imp__XamShowDirtyDiscErrorUI, kBridgeNote)
+XAM_EXPORT_STUB(__imp__XamShowMessageBoxUIEx)
+XAM_EXPORT_STUB(__imp__XamShowGamerCardUIForXUID)
+XAM_EXPORT_STUB(__imp__XamShowPlayerReviewUI)
+XAM_EXPORT_STUB(__imp__XamShowDeviceSelectorUI)
+XAM_EXPORT_STUB(__imp__XamShowDirtyDiscErrorUI)
 
-PPC_STUB_LOG(__imp__XeKeysConsoleSignatureVerification, kBridgeNote)
-PPC_STUB_LOG(__imp__XeCryptSha, kBridgeNote)
-PPC_STUB_LOG(__imp__XeKeysConsolePrivateKeySign, kBridgeNote)
+XBOXKRNL_EXPORT_STUB(__imp__XeKeysConsoleSignatureVerification)
+XBOXKRNL_EXPORT_STUB(__imp__XeCryptSha)
+XBOXKRNL_EXPORT_STUB(__imp__XeKeysConsolePrivateKeySign)

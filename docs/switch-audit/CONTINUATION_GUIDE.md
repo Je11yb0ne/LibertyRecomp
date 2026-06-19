@@ -4128,3 +4128,133 @@ Next stage entry condition:
 - Do not call `LaunchModule()`.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 85: Registered Sidecar Export Stubs
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Improve the eight sidecar bridge functions from linker-only stubs to
+  ReXGlue-registered sidecar export stubs while still stopping before guest
+  launch.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Reference review in this batch:
+
+- `work\refs\skate3recomp` is the most complete ReXGlue-style reference:
+  it uses a full SDK source tree through `add_subdirectory`, links
+  `rex::runtime`, uses `REX_DEFINE_APP`, includes generated sources, and
+  puts game-specific path/content/profile/DLC behavior in app hooks.
+- `work\refs\bo2-recompiled`, `work\refs\TDURE`, and
+  `work\refs\TheOutFit` all use the generated `rexglue_setup_target(...)`
+  pattern instead of the legacy LibertyRecomp bootstrap shape.
+- `bo2-recompiled` also shows project-side stubs are a normal short-term
+  ReXGlue practice, but they are explicit game/project compatibility code, not
+  a claim that the full Xbox kernel surface is implemented.
+- The current Liberty sidecar remains a direct `rex::Runtime` tool-mode
+  audit target because the full ReXGlue SDK source build is still blocked by
+  the previously recorded SDK packaging/CMake debt.
+
+Completed in this batch:
+
+- Confirmed the current `PPC_STUB_LOG(...)` bridge definitions only provide
+  linkable C symbols; they do not register functions in ReXGlue's global PPC
+  function registry.
+- Confirmed ReXGlue `XAM_EXPORT_STUB(...)` and `XBOXKRNL_EXPORT_STUB(...)`
+  both define the PPC function and register it with
+  `rex::detail::PPCFuncRegistrar`.
+- Added a TDD red smoke assertion before editing:
+  `LibertyRecompRex.exe ... --audit-load-xex` was expected to report
+  `ppc_registered=yes` for the eight bridge functions, and it failed because
+  all eight were still missing from the registry.
+- Replaced the eight `PPC_STUB_LOG(...)` bridge definitions in
+  `LibertyRecompRex/src/pre_guest_import_bridges.cpp` with:
+  - `XAM_EXPORT_STUB(...)` for the five XAM UI functions,
+  - `XBOXKRNL_EXPORT_STUB(...)` for the three XboxKrnl crypto/key functions.
+- Updated the export-coverage diagnostic labels in
+  `LibertyRecompRex/src/main.cpp` from `temporary_sidecar_bridge` to
+  `sidecar_registered_stub` for those eight functions.
+- Kept `ExThreadObjectType` unchanged as `missing_variable_mapping`.
+- Did not modify generated sources, thirdparty submodules, Switch packaging,
+  or the prebuilt ReXGlue libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+  with a log assertion requiring `ppc_registered=yes` for all eight bridge
+  functions.
+- TDD red result:
+  expected failure, `TDD_RED_PASS registered bridge exports missing as expected`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  reran `LibertyRecompRex.exe ... --audit-load-xex` and asserted that all eight
+  bridge functions logged `ppc_registered=yes` with
+  `bridge=sidecar_registered_stub`.
+- TDD green result:
+  `TDD_GREEN_PASS registered sidecar exports verified for 8 symbols`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: no`,
+  `XEX load audit: skipped`, no `XEX load audit: export-coverage`, no
+  `Loading XEX image:`, and no `Launching module`.
+- Opt-in sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in sidecar smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: yes`,
+  `XEX image loaded successfully`, `XEX load audit: export-coverage`,
+  `ppc_registered=yes` with `bridge=sidecar_registered_stub`,
+  `ExThreadObjectType` with `bridge=missing_variable_mapping`,
+  `LaunchModule skipped`, and no `Launching module`.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `LibertyRecompRex/src/pre_guest_import_bridges.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this registered sidecar export-stub stage.
+   Completion standard: only the two sidecar source files and two audit docs
+   are staged, the commit message states the Windows/ReXGlue registered-export
+   boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Audit the `ExThreadObjectType` variable mapping path.
+   Completion standard: record whether the current sidecar can install a
+   variable mapping through public ReXGlue APIs after `Runtime::Setup()`, or
+   whether it requires SDK-side `XboxkrnlModule` integration.
+3. Keep `LaunchModule()` disabled until the variable-mapping and first-launch
+   rollback boundary is documented.
+   Completion standard: no guest launch attempt happens without an opt-in gate,
+   a fresh default smoke, and a clear failure capture path.
+4. Keep full SDK refresh as a later branch.
+   Completion standard: do not import `work\refs\rexglue-sdk` into the tracked
+   tree until the FFmpeg/dxbc/renderdoc packaging debt is planned separately.
+
+Next stage entry condition:
+
+- Start with `ExThreadObjectType` mapping evidence.
+- Do not call `LaunchModule()`.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

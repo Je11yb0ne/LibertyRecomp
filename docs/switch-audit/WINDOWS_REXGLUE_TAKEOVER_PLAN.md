@@ -227,6 +227,21 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   that propagate `thirdparty/FFmpeg` includes. The full-kernel path is therefore
   SDK packaging/CMake integration debt, not a verified drop-in bridge
   replacement yet.
+- Reference comparison now favors a narrow sidecar compatibility step before a
+  full SDK import. `skate3recomp` uses the cleaner long-term shape:
+  `add_subdirectory` for a full ReXGlue SDK source tree, `rex::runtime`,
+  `REX_DEFINE_APP`, generated sources, and ReXApp hooks for path/content
+  behavior. `bo2-recompiled`, `TDURE`, and `TheOutFit` use the generated
+  `rexglue_setup_target(...)` pattern. `bo2-recompiled` also shows
+  project-side stubs are a normal short-term compatibility layer, but those are
+  still explicit project code, not proof of full kernel coverage.
+- The sidecar bridge has therefore been narrowed from unregistered linker-only
+  `PPC_STUB_LOG(...)` definitions to ReXGlue-registered
+  `XAM_EXPORT_STUB(...)` / `XBOXKRNL_EXPORT_STUB(...)` definitions. The opt-in
+  `--audit-load-xex` path now logs `ppc_registered=yes` with
+  `bridge=sidecar_registered_stub` for all eight bridge functions while still
+  leaving `LaunchModule()` disabled. `ExThreadObjectType` remains the next
+  `missing_variable_mapping` boundary.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -344,21 +359,22 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the non-codegen-only ReXGlue full-kernel blocker record.
-   Completion standard: only audit docs are staged, the commit message states
-   the full-kernel/FFmpeg target blocker, and the current codex branch is
-   pushed.
-2. Choose the bridge replacement route before any guest launch.
-   Completion standard: record either a full ReXGlue SDK refresh/import plan
-   from `work\refs\rexglue-sdk`, or a narrow real sidecar export implementation
-   plan for the eight bridge functions plus `ExThreadObjectType`.
-3. Keep `LibertyRecompRex/src/pre_guest_import_bridges.cpp` until replacement is
-   verified.
-   Completion standard: the sidecar links and smoke tests pass without the
-   bridge file before it is removed.
+1. Commit and push the registered sidecar export-stub boundary.
+   Completion standard: only `LibertyRecompRex/src/main.cpp`,
+   `LibertyRecompRex/src/pre_guest_import_bridges.cpp`, and audit docs are
+   staged; the commit message states the Windows/ReXGlue registered-export
+   boundary; the current codex branch is pushed.
+2. Audit `ExThreadObjectType` variable mapping before any guest launch.
+   Completion standard: prove whether a sidecar can install the variable
+   mapping through public ReXGlue APIs after `Runtime::Setup()`, or record the
+   SDK-side integration point that must own it.
+3. Keep `LaunchModule()` behind a separate opt-in first-launch audit gate.
+   Completion standard: no guest launch attempt happens until default smoke,
+   opt-in LoadXex smoke, export coverage, and failure-capture logging are all
+   fresh and documented.
 4. Keep Vulkan-first work as an explicit later boundary.
-   Completion standard: do not enable runtime graphics until the module
-   materialization/import bridge boundary is stable.
+   Completion standard: do not enable runtime graphics until the module,
+   export, and variable-mapping boundary is stable.
 
 ## Entry Condition For Switch Return
 
