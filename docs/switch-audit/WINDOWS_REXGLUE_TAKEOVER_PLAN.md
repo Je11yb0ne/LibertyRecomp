@@ -217,6 +217,16 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   replacing the temporary sidecar import bridge, most likely by building/linking
   a non-codegen-only ReXGlue kernel or adding real sidecar exports with recorded
   rationale.
+- A non-codegen-only ReXGlue kernel was tested in an isolated temp SDK/build
+  root. The D3D12 path is blocked by missing `thirdparty/dxbc`, while a
+  Vulkan-only configure succeeds with `REXGLUE_CODEGEN_ONLY=OFF`,
+  `REXGLUE_USE_D3D12=OFF`, `REXGLUE_USE_VULKAN=ON`,
+  `CMAKE_POLICY_VERSION_MINIMUM=3.5`, and `CMAKE_CXX_FLAGS=/GR /EHsc`.
+  The Vulkan build reaches `rexaudio` and then fails because the repository SDK
+  snapshot does not define real FFmpeg `libavcodec` / `libavutil` CMake targets
+  that propagate `thirdparty/FFmpeg` includes. The full-kernel path is therefore
+  SDK packaging/CMake integration debt, not a verified drop-in bridge
+  replacement yet.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -334,18 +344,18 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the controlled `--audit-load-xex` gate.
-   Completion standard: only the sidecar and audit docs are staged, the commit
-   message states the ReXGlue module materialization boundary, and the current
-   codex branch is pushed.
-2. Replace or remove the temporary import bridge before guest launch.
-   Completion standard: the sidecar links without
-   `LibertyRecompRex/src/pre_guest_import_bridges.cpp`, or the guide records why
-   a narrowly scoped real sidecar export remains necessary.
-3. Test a non-codegen-only ReXGlue kernel build/link path in isolation.
-   Completion standard: build/link evidence proves whether `xam_ui.cpp` and
-   `xboxkrnl_crypt.cpp` can replace the temporary bridge without modifying
-   thirdparty submodules or tracked generated sources.
+1. Commit and push the non-codegen-only ReXGlue full-kernel blocker record.
+   Completion standard: only audit docs are staged, the commit message states
+   the full-kernel/FFmpeg target blocker, and the current codex branch is
+   pushed.
+2. Choose the bridge replacement route before any guest launch.
+   Completion standard: record either a full ReXGlue SDK refresh/import plan
+   from `work\refs\rexglue-sdk`, or a narrow real sidecar export implementation
+   plan for the eight bridge functions plus `ExThreadObjectType`.
+3. Keep `LibertyRecompRex/src/pre_guest_import_bridges.cpp` until replacement is
+   verified.
+   Completion standard: the sidecar links and smoke tests pass without the
+   bridge file before it is removed.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module
    materialization/import bridge boundary is stable.

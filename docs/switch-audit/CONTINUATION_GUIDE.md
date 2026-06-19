@@ -3984,3 +3984,147 @@ Next stage entry condition:
 - Do not call `LaunchModule()`.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 84: ReXGlue Full-Kernel Build Blocker
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest baseline.
+- Continue Windows-first ReXGlue takeover through the separate `LibertyRecompRex` sidecar.
+- Test whether a non-codegen-only ReXGlue kernel can replace the temporary sidecar import bridge.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Ran the full-kernel experiment only in isolated work directories under
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work`.
+- Did not modify tracked generated sources, tracked thirdparty submodules, or
+  the prebuilt repository `glue\rexglue-sdk-main\out\win-amd64\rexkernel.lib`.
+- Confirmed the default non-codegen-only Windows configure uses D3D12 and fails
+  because the current repository SDK lacks `thirdparty\dxbc\DXBCChecksum.cpp`.
+- Confirmed a Vulkan-only non-codegen-only configure can avoid the D3D12/dxbc
+  dependency:
+  - `REXGLUE_CODEGEN_ONLY=OFF`,
+  - `REXGLUE_USE_D3D12=OFF`,
+  - `REXGLUE_USE_VULKAN=ON`,
+  - `CMAKE_POLICY_VERSION_MINIMUM=3.5`,
+  - `CMAKE_CXX_FLAGS=/GR /EHsc`.
+- Confirmed CMake 4 requires the policy compatibility flag because vendored
+  `glslang` still declares an old `cmake_minimum_required`.
+- Confirmed the repository SDK's trimmed `thirdparty\CMakeLists.txt` declares
+  `renderdoc` as an empty INTERFACE target, while refs have a usable
+  `thirdparty\renderdoc\renderdoc_app.h`.
+- For the isolated experiment only, copied `renderdoc_app.h` from
+  `work\refs\rexglue-sdk\thirdparty\renderdoc` into the temp SDK root and
+  patched the temp `renderdoc` INTERFACE target to expose its include directory.
+- Confirmed Clang 22 warning volume made full Vulkan UI compilation extremely
+  expensive; the isolated temp root added `-Wno-everything` after the SDK's
+  `-Wall -Wextra` for this build-feasibility probe only.
+- The nowarn Vulkan build reached `693/789` build steps, then failed in
+  `rexaudio` XMA sources:
+  - `src\audio\xma_context.cpp` could not include
+    `libavcodec/avcodec.h`,
+  - `src\audio\xma_decoder.cpp` could not include `libavutil/log.h`.
+- Root cause classification:
+  - the current repository SDK's trimmed `thirdparty\CMakeLists.txt` does not
+    define real `libavcodec` or `libavutil` CMake targets;
+  - therefore `rexaudio`'s `target_link_libraries(rexaudio PUBLIC libavcodec libavutil)`
+    is treated as raw library names and does not propagate the FFmpeg include
+    directory;
+  - `work\refs\rexglue-sdk\thirdparty\CMakeLists.txt` contains a large FFmpeg
+    block that defines `libavutil`, `libavcodec`, their sources, include dirs,
+    and overlay generated list files, but that block is absent from the
+    repository SDK snapshot currently linked by `LibertyRecompRex`.
+- Result:
+  - a full non-codegen-only ReXGlue `rexkernel.lib` was not produced in this
+    stage;
+  - replacement of `LibertyRecompRex/src/pre_guest_import_bridges.cpp` by simply
+    flipping `REXGLUE_CODEGEN_ONLY=OFF` is not currently verified;
+  - the exact blocker is SDK packaging/CMake integration debt, not the GTA IV
+    sidecar main loop.
+
+Fresh verification:
+
+- Git status command:
+  `git status --short --branch`
+- Git status result:
+  only existing unrelated dirty entries are present:
+  `.planning/`, `thirdparty/concurrentqueue`, `thirdparty/implot`,
+  `thirdparty/plume`, and `tools/XenonRecomp`.
+- D3D12 configure blocker:
+  missing `thirdparty\dxbc\DXBCChecksum.cpp` in the repository SDK snapshot.
+- Vulkan configure command:
+  `cmake -S <temp-sdk> -B <temp-build> -G Ninja ... -DREXGLUE_CODEGEN_ONLY=OFF -DREXGLUE_USE_D3D12=OFF -DREXGLUE_USE_VULKAN=ON -DCMAKE_SKIP_INSTALL_RULES=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_FLAGS="/GR /EHsc"`
+- Vulkan configure result:
+  succeeded with `Graphics: D3D12=OFF Vulkan=ON`.
+- Vulkan build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\rexglue-full-kernel-audit-build-49c16f9c-vulkan-renderdocfix-nowarn -j 4 rexkernel`
+- Vulkan build result:
+  failed at `rexaudio` build step `693/789` with missing FFmpeg include headers
+  from `xma_context.cpp` and `xma_decoder.cpp`.
+- Audit docs whitespace command:
+  `git -c core.whitespace=cr-at-eol diff --check -- docs/switch-audit/CONTINUATION_GUIDE.md docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`
+- Audit docs whitespace result:
+  no whitespace errors; Git only reported existing LF-to-CRLF warnings.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded with `ninja: no work to do`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: no`,
+  `XEX load audit: skipped`, no `Loading XEX image:`, and no
+  `Launching module`.
+- Opt-in sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in sidecar smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: yes`,
+  `XEX image loaded successfully`, `XEX load audit: export-coverage`,
+  `ExThreadObjectType`, `LaunchModule skipped`, and no `Launching module`.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+- Temporary build/source edits under
+  `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\rexglue-full-kernel-audit-*`
+  are experiment artifacts outside the git root and must not be staged.
+
+Next small tasks:
+
+1. Commit and push this full-kernel build-blocker documentation stage.
+   Completion standard: only the two allowed audit docs are staged, the commit
+   message states the Windows/ReXGlue full-kernel blocker boundary, and branch
+   `codex/switch-audit-20260615` is pushed.
+2. Choose the replacement path for the temporary bridge.
+   Completion standard: record either a full SDK refresh/import plan from
+   `work\refs\rexglue-sdk` or a narrow real sidecar export implementation plan
+   for the eight bridge functions plus `ExThreadObjectType`.
+3. Do not remove `LibertyRecompRex/src/pre_guest_import_bridges.cpp` yet.
+   Completion standard: removal happens only after sidecar link and smoke pass
+   without the bridge file.
+4. Keep Vulkan runtime graphics behind the module/import boundary.
+   Completion standard: no runtime graphics launch is attempted before bridge
+   and variable export coverage is stable.
+
+Next stage entry condition:
+
+- Start by deciding between full ReXGlue SDK refresh versus narrow sidecar
+  exports.
+- Do not call `LaunchModule()`.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.
