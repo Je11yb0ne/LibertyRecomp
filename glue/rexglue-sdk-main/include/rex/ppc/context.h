@@ -24,6 +24,7 @@
 
 #include <rex/chrono/clock.h>  // For mftb timebase access
 #include <rex/logging.h>
+#include <rex/memory/utils.h>
 #include <rex/ppc/memory.h>
 #include <rex/ppc/types.h>
 #include <rex/thread/mutex.h>
@@ -138,8 +139,16 @@ inline std::atomic<uint32_t> g_ppc_missing_indirect_log_count{0};
       uint32_t _icf_log = g_ppc_missing_indirect_log_count.fetch_add(                    \
           1, std::memory_order_relaxed);                                                 \
       if (_icf_log < 256) {                                                              \
-        auto _icf_can_read_u32 = [](uint32_t _addr) -> bool {                            \
-          return uint64_t(_addr) + sizeof(uint32_t) <= PPC_MEMORY_SIZE;                  \
+        auto _icf_can_read_u32 = [&](uint32_t _addr) -> bool {                           \
+          if (uint64_t(_addr) + sizeof(uint32_t) > PPC_MEMORY_SIZE) return false;        \
+          size_t _icf_region_length = 0;                                                  \
+          rex::memory::PageAccess _icf_access = rex::memory::PageAccess::kNoAccess;      \
+          if (!rex::memory::QueryProtect(PPC_RAW_ADDR(_addr), _icf_region_length,        \
+                                         _icf_access)) {                                 \
+            return false;                                                                \
+          }                                                                              \
+          if (_icf_region_length < sizeof(uint32_t)) return false;                       \
+          return _icf_access != rex::memory::PageAccess::kNoAccess;                      \
         };                                                                                \
         uint32_t _icf_r3_vtbl = 0;                                                       \
         uint32_t _icf_r3_vtbl_0 = 0;                                                     \

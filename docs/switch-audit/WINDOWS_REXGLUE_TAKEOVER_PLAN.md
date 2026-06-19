@@ -422,27 +422,26 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the tool-mode video null-guard overlay boundary.
-   Completion standard: only `LibertyRecompRex/CMakeLists.txt`,
-   `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_video.cpp`, and audit
-   docs are staged; fresh verification covers the default sidecar,
-   `--audit-load-xex`, full-root `--audit-launch-module`, sidecar build, and
-   legacy Windows build.
-2. Classify the new generated-code null/read blocker before adding another
+1. Commit and push the missing-indirect diagnostic safe-peek boundary.
+   Completion standard: only
+   `glue/rexglue-sdk-main/include/rex/ppc/context.h` and audit docs are staged;
+   fresh verification covers the default sidecar, `--audit-load-xex`,
+   full-root `--audit-launch-module`, sidecar build, and legacy Windows build.
+2. Classify the new object/native-handle null-read blocker before adding another
    runtime fix.
-   Completion standard: map `pc_rva=0x031FE80A` / `__imp__sub_82805578` in
-   `LibertyRecompLib:gta4_recomp.53.cpp.obj` to the generated source and decide
-   whether the fault at `0x0000000100000000` is guest memory/page backing,
-   missing vtable/function restoration, bad generated dispatch, or ReXGlue
-   runtime state.
-3. Decide whether the next diagnostic needs generated-source instrumentation or
-   ReXGlue runtime/page-backed memory probes.
+   Completion standard: map `pc_rva=0x0004482A` /
+   `rex::system::XObject::GetNativeObject(...)` in `rexsystem:xobject.cpp.obj`
+   to the caller/export path and decide whether the fault is caused by an
+   invalid native object pointer, object-table behavior, missing export wrapper,
+   or guest state setup.
+3. Decide whether the next diagnostic belongs in `xobject.cpp`, the relevant
+   xboxkrnl export wrapper, or the sidecar first-launch observer.
    Completion standard: pick one minimal evidence-gathering boundary and record
-   why it is safer than broad generated-code edits.
+   why it is safer than broad object-table or generated-source edits.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, first-launch failure-capture, video
-   null-guard/graphics-system ownership, and generated-code null/read
+   null-guard/graphics-system ownership, and object/native-handle
    boundaries are stable.
 
 ## Entry Condition For Switch Return

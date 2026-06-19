@@ -5415,3 +5415,136 @@ Next stage entry condition:
   until the current video null-guard overlay is committed and pushed.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 95: Missing-Indirect Diagnostic Safe Peek
+
+Current mainline goal:
+
+- Keep Switch paused and use it only as a later migration/regression reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Make the generated-code missing-indirect diagnostic safe enough to reveal the
+  real next blocker instead of crashing while trying to print debug context.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- After the video null guard overlay, the first full-root
+  `--audit-launch-module` exception moved from the video wrapper to
+  `pc_rva=0x031FE80A fault=0x0000000100000000 access=read`.
+- Map lookup classified that PC as `__imp__sub_82805578 + 0x2AA` in
+  `LibertyRecompLib:gta4_recomp.53.cpp.obj`.
+- Object disassembly of `__imp__sub_82805578` showed offset `0x2AA` is inside
+  the `PPC_CALL_INDIRECT_FUNC` missing-function diagnostic, specifically the
+  diagnostic `PPC_LOAD_U32(ctx.r3.u32)` vtable peek path.
+- The previous `_icf_can_read_u32` helper only checked whether the guest
+  address plus four bytes was within the 4GB guest range. It did not check
+  whether the translated host page was committed/readable.
+- ReXGlue already has cross-platform `rex::memory::QueryProtect(...)`, so the
+  diagnostic can cheaply ask whether the host page behind `PPC_RAW_ADDR(...)`
+  is readable before peeking.
+
+Completed in this batch:
+
+- Updated `glue/rexglue-sdk-main/include/rex/ppc/context.h`.
+- Added `rex/memory/utils.h` to the context header.
+- Changed the missing-indirect diagnostic helper to:
+  - keep the 4GB guest-range check,
+  - call `rex::memory::QueryProtect(PPC_RAW_ADDR(addr), ...)`,
+  - skip vtable/debug peeks when the host page is not readable.
+- Did not change generated GTA IV sources.
+- Did not change guest execution dispatch semantics beyond making optional
+  diagnostic memory peeks safe.
+- Did not modify thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - exit code `8`,
+  - `pc_rva=0x031FE80A`,
+  - `fault=0x0000000100000000 access=read`.
+- TDD red result:
+  `TDD_RED_PASS missing_indirect_diag_peek_crashes exit=8 pc_rva=0x031FE80A`.
+- Green build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Green build result:
+  the first command timed out while generated objects were still compiling;
+  process inspection showed `ninja`/`clang-cl` continued running, and a follow-up
+  `ninja ... LibertyRecompRex` completed with `ninja: no work to do`.
+- TDD green command:
+  same full-root gated launch command, with assertions requiring:
+  - no `pc_rva=0x031FE80A`,
+  - no `pc_rva=0x0413B537`,
+  - `Runtime::LaunchModule` still reached,
+  - `Stub XFileSectorInformation!` still present,
+  - no `NtQueryInformationFile(XFileSectorInformation) unimplemented`
+    regression.
+- TDD green result:
+  `MISSING_INDIRECT_DIAG_GREEN_PASS exit=8`.
+- New blocker evidence:
+  the first structured exception moved to
+  `pc_rva=0x0004482A fault=0x0000000000000000 access=read`.
+- New blocker map classification:
+  - target `Rva+Base=0x14004482A`,
+  - nearest previous symbol
+    `rex::system::XObject::GetNativeObject(...)`,
+  - previous object `rexsystem:xobject.cpp.obj`,
+  - previous symbol delta `0x7A`,
+  - nearest next symbol `dtor$18` inside the same `GetNativeObject(...)`,
+  - next symbol delta `0x116`.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`,
+  `ninja ... LibertyRecomp`, default sidecar run, `--audit-load-xex`, and
+  full-root `--audit-launch-module`.
+- Final verification result:
+  `FINAL_VERIFICATION_PASS safe_peek_stage`.
+- Final default sidecar result:
+  exit code `0`, reaches the tool-mode pre-guest boundary, does not call
+  `Runtime::LaunchModule`, has no `pc_rva=`, and does not hit the
+  `XFileSectorInformation` overlay.
+- Final `--audit-load-xex` result:
+  exit code `0`, logs `LoadXexImage returned 00000000; LaunchModule skipped`,
+  does not call `Runtime::LaunchModule`, has no `pc_rva=`, and does not hit the
+  sector-info overlay.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, keeps
+  `Stub XFileSectorInformation!` green, does not regress to
+  `pc_rva=0x031FE80A` or `pc_rva=0x0413B537`, does not log
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`, and stops at
+  `pc_rva=0x0004482A fault=0x0000000000000000 access=read`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `glue/rexglue-sdk-main/include/rex/ppc/context.h`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this diagnostic safe-peek stage.
+   Completion standard: only the ReXGlue context header and audit docs are
+   staged; the commit message states the Windows/ReXGlue missing-indirect
+   diagnostic boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Classify the new `XObject::GetNativeObject(...)` null-read blocker.
+   Completion standard: identify which kernel export or guest call passes a
+   null/invalid object native pointer and whether the correct next fix is an
+   object-table behavior change, a missing export wrapper, or guest state setup.
+3. Keep Vulkan-first renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the object/native
+   handle blocker is classified and the sidecar runtime boundary is stable.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification.
+- Do not change generated GTA IV source for this object/native-handle blocker
+  without a fresh source/log reason.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
