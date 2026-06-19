@@ -4987,3 +4987,140 @@ Next stage entry condition:
 - Then inspect `xboxkrnl_io_info.cpp` and the relevant info structures.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 92: XFileSectorInformation Sidecar Overlay
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Clear the first full-root runtime/API blocker:
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`.
+- Do not claim Windows/Switch playability.
+
+Root-cause and reference evidence:
+
+- Full-root `--audit-launch-module` reliably reproduced the blocker with exit
+  code `8` and the log line:
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`.
+- The sidecar currently links the prebuilt
+  `glue/rexglue-sdk-main/out/win-amd64/rexkernel.lib`.
+- `llvm-nm` confirmed that prebuilt library contains strong
+  `__imp__NtQueryInformationFile`,
+  `rex::kernel::xboxkrnl::NtQueryInformationFile_entry`, and the old
+  `XFileSectorInformation` unimplemented string.
+- `ExportResolver` exposes `SetVariableMapping(...)` only; it has no public
+  function-export remapping API for this case.
+- GTA IV generated sources call `__imp__NtQueryInformationFile`,
+  `__imp__NtSetInformationFile`, and `__imp__NtQueryVolumeInformationFile`
+  directly, so this is a direct linked PPC import symbol, not an ordinal-table
+  lookup that can be changed at runtime.
+- A newer local ReXGlue reference at
+  `work\refs\rexglue-sdk\src\kernel\xboxkrnl\xboxkrnl_io_info.cpp` already
+  handles `XFileSectorInformation` as a 4-byte stub response by hashing the
+  file path, logging `Stub XFileSectorInformation!`, and returning success.
+
+Completed in this batch:
+
+- Ported the newer ReXGlue `XFileSectorInformation` behavior into the vendored
+  SDK source:
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp`.
+- The implementation now writes a deterministic 32-bit path hash to the
+  caller's 4-byte output buffer, sets `out_length=4`, and returns success.
+- Added that single ReXGlue kernel source file directly to the
+  `LibertyRecompRex` target:
+  `LibertyRecompRex/CMakeLists.txt`.
+- This intentionally overlays only the stale `xboxkrnl_io_info.cpp` object for
+  the sidecar while leaving the rest of the prebuilt ReXGlue libraries in use.
+- Did not modify GTA IV generated sources, thirdparty submodules, Switch
+  packaging, or ReXGlue binary libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - `First-launch audit: calling Runtime::LaunchModule`,
+  - `NtQueryInformationFile(XFileSectorInformation) unimplemented`.
+- TDD red result:
+  `TDD_RED_PASS exit=8 blocker=XFileSectorInformation`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded after CMake regeneration and compiled
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp` into
+  `LibertyRecompRex`. The existing vcpkg applocal warning about missing
+  `dumpbin`, `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  same full-root gated launch command, with assertions requiring:
+  - no `NtQueryInformationFile(XFileSectorInformation) unimplemented`,
+  - `Stub XFileSectorInformation!` present.
+- TDD green result:
+  `TDD_GREEN_PASS exit=8`.
+- Full-root green evidence:
+  - `game:\common.rpf`, `game:\xbox360.rpf`, and `game:\audio.rpf` still
+    resolve to host files,
+  - first guest entry still reaches
+    `XThread::Execute - Calling function at 829A0860`,
+  - secondary guest threads still reach
+    `XThread::Execute - Calling function at 829B08E0`,
+  - both sector queries log `Stub XFileSectorInformation!`,
+  - the new next blocker is still an access violation in the first-launch
+    guest thread:
+    `structured exception observed sequence=1 code=access_violation ... fault=0x0000000000000000 access=read`,
+  - bounded audit still exits with process code `8`.
+- Default sidecar regression:
+  exit code `0`, reaches `Runtime setup reached tool-mode pre-guest boundary`,
+  and does not call `LaunchModule()` or the sector-info stub.
+- `--audit-load-xex` sidecar regression:
+  exit code `0`, logs
+  `XEX load audit: LoadXexImage returned 00000000; LaunchModule skipped`, and
+  does not call `LaunchModule()` or the sector-info stub.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/CMakeLists.txt`,
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `XFileSectorInformation` sidecar-overlay stage.
+   Completion standard: only the two code files and audit docs are staged, the
+   commit message states the Windows/ReXGlue file-info boundary, and branch
+   `codex/switch-audit-20260615` is pushed.
+2. Improve first-launch exception localization.
+   Completion standard: the structured exception log records enough
+   information to map host PC to sidecar/map RVA or a named module, without
+   changing default or `--audit-load-xex` behavior.
+3. Use the improved capture to classify the new null-read blocker.
+   Completion standard: identify whether the failure is a missing import,
+   invalid function dispatch, bad RPF/content state, or ReXGlue kernel/runtime
+   state, with source/log evidence before adding another fix.
+4. Keep Vulkan-first renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the module,
+   export, variable-mapping, and first-launch crash-capture boundary is
+   stable.
+
+Next stage entry condition:
+
+- Start by committing and pushing this stage.
+- Then improve the exception observer's host PC/RVA reporting before changing
+  another runtime behavior.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

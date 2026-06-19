@@ -296,6 +296,15 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp`, followed
   by the failure-capture observer logging an access violation at fault
   `0x0000000000000000` with access `read`.
+- `XFileSectorInformation` is now covered for the Windows sidecar by compiling
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp` directly
+  into `LibertyRecompRex` and porting the newer ReXGlue 4-byte path-hash stub
+  response. This overlays the stale prebuilt `rexkernel.lib` object for this
+  one file-info implementation without changing generated GTA IV sources or
+  ReXGlue binary libraries. Full-root `--audit-launch-module` now logs
+  `Stub XFileSectorInformation!` twice and no longer logs the sector-info
+  unimplemented blocker; the next observed blocker is a first-launch guest
+  thread access violation at fault `0x0000000000000000` with access `read`.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -413,18 +422,18 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the full-root launch evidence boundary.
-   Completion standard: only audit docs are staged; the commit message states
-   the Windows/ReXGlue full-root launch evidence boundary; the current codex
-   branch is pushed.
-2. Implement or prove the smallest `XFileSectorInformation` response.
-   Completion standard: confirm whether `xboxkrnl_io_info.cpp` is linked into
-   `LibertyRecompRex`, then add the narrowest file-info implementation or a
-   sidecar override with a recorded replacement plan.
-3. Rerun full-root `--audit-launch-module` with the bounded harness.
-   Completion standard: the run gets past the
-   `XFileSectorInformation unimplemented` log and records the next content,
-   import, function, or runtime blocker.
+1. Commit and push the `XFileSectorInformation` sidecar-overlay boundary.
+   Completion standard: only the two code files and audit docs are staged; the
+   commit message states the Windows/ReXGlue file-info boundary; the current
+   codex branch is pushed.
+2. Improve first-launch exception localization.
+   Completion standard: structured exception logs include enough host module,
+   image base, and RVA information to map the current null-read PC to a source
+   or map symbol.
+3. Classify the new null-read blocker before adding another runtime fix.
+   Completion standard: identify whether it is missing import coverage, invalid
+   generated dispatch, RPF/content parser state, or ReXGlue kernel/runtime
+   state, using fresh full-root launch evidence.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, and first-launch failure-capture boundary is

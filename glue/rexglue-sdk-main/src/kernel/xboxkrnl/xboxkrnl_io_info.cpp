@@ -97,10 +97,11 @@ ppc_u32_result_t NtQueryInformationFile_entry(ppc_u32_t file_handle,
       break;
     }
     case XFileSectorInformation: {
-      // TODO(benvanik): return sector this file's on.
-      REXKRNL_ERROR("NtQueryInformationFile(XFileSectorInformation) unimplemented");
-      status = X_STATUS_INVALID_PARAMETER;
-      out_length = 0;
+      REXKRNL_DEBUG("Stub XFileSectorInformation!");
+      auto info = info_ptr.as<uint32_t*>();
+      size_t fname_hash = rex::memory::hash_combine(82589933LL, file->path());
+      *info = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
+      out_length = sizeof(uint32_t);
       break;
     }
     case XFileXctdCompressionInformation: {
