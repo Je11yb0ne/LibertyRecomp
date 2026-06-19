@@ -5124,3 +5124,158 @@ Next stage entry condition:
   another runtime behavior.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 93: First-Launch Exception Localization
+
+Current mainline goal:
+
+- Keep Switch paused and use it only as a later migration/regression reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Improve first-launch crash capture so the next runtime blocker can be mapped
+  from a raw host PC to a module/RVA/map symbol before another behavior fix is
+  attempted.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- After the `XFileSectorInformation` overlay, the full-root
+  `--audit-launch-module` path no longer stops at the file-sector query.
+- The next reproducible blocker is a null read access violation after guest
+  startup reaches `XThread::Execute - Calling function at 829A0860` and after
+  two `Stub XFileSectorInformation!` calls.
+- The old first-launch observer logged only the host PC and fault address, which
+  was not enough to classify whether the failure came from generated guest code,
+  a ReXGlue kernel wrapper, or another loaded module.
+- The fresh map lookup for the current crash PC reports:
+  - `pc_rva=0x0413B537`,
+  - nearest previous symbol:
+    `??$HostToGuestFunction@$MP6AXV?$PPCValue@I@rex@@V?$PPCPointer@X@2@@Z1?VdSetGraphicsInterruptCallback_entry@xboxkrnl@kernel@2@YAX01@Z@rex@@YAXAEAUPPCContext@@PEAE@Z`,
+  - previous symbol object:
+    `rexkernel:xboxkrnl_video.cpp.obj`,
+  - previous symbol delta:
+    `0xE7`,
+  - next symbol:
+    `__imp__VdInitializeRingBuffer`,
+  - next symbol delta:
+    `0x89`.
+- The vendored ReXGlue video wrapper dereferences
+  `kernel_state()->emulator()->graphics_system()` in
+  `VdSetGraphicsInterruptCallback_entry(...)` without a null guard.
+- The newer local ReXGlue reference at
+  `work\refs\rexglue-sdk\src\kernel\xboxkrnl\xboxkrnl_video.cpp` has the same
+  function but returns early when `graphics_system` is null.
+
+Completed in this batch:
+
+- Added deterministic default asset staging to `LibertyRecompRex/CMakeLists.txt`.
+- The sidecar now copies
+  `glue/rexglue-sdk-main/gta4-recomp/assets` to
+  `$<TARGET_FILE_DIR:LibertyRecompRex>/assets` after build.
+- This fixes the no-argument/default sidecar smoke path, which previously
+  depended on `LibertyRecompRex\assets` already existing in the build output.
+- Added Windows host-PC localization to `LibertyRecompRex/src/main.cpp`.
+- The first-launch structured exception log now records:
+  - host module path,
+  - module base,
+  - module-relative RVA,
+  - whether the module lookup resolved.
+- Kept the observer passive: it still flushes logs and returns
+  `continue-search`; it does not swallow exceptions or change guest/runtime
+  behavior.
+- Did not modify generated GTA IV sources, thirdparty submodules, Switch
+  packaging, or ReXGlue video behavior in this batch.
+
+Fresh verification:
+
+- Asset-staging TDD red:
+  default sidecar run failed with exit code `2` because
+  `LibertyRecompRex\assets` was missing and `Runtime::SetupVfs` could not mount
+  the default game-data root.
+- Asset-staging green:
+  `ninja ... LibertyRecompRex` reran CMake and linked the sidecar with
+  `Staging LibertyRecompRex default ReXGlue assets`; the build output now
+  contains `LibertyRecompRex\assets\default.xex`.
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring the old log to lack `pc_rva=`.
+- TDD red result:
+  `TDD_RED_PASS exception localization missing as expected exit=8`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  same full-root gated launch command, with assertions requiring:
+  - `structured exception observed sequence=1 code=access_violation`,
+  - `host_module=`,
+  - `module_base=0x`,
+  - `pc_rva=0x`,
+  - `resolved=yes`,
+  - `Stub XFileSectorInformation!`,
+  - no `NtQueryInformationFile(XFileSectorInformation) unimplemented`
+    regression.
+- TDD green result:
+  `TDD_GREEN_PASS exit=8`.
+- Green log evidence:
+  `pc=0x00007FF68543B537 host_module=...\LibertyRecompRex.exe module_base=0x00007FF681300000 pc_rva=0x0413B537 resolved=yes fault=0x0000000000000000 access=read`.
+- Map classification command:
+  scan `LibertyRecompRex.map` for nearest `Rva+Base <= 0x14413B537`.
+- Map classification result:
+  current null read lands inside the host-to-guest wrapper for
+  `VdSetGraphicsInterruptCallback_entry` in
+  `rexkernel:xboxkrnl_video.cpp.obj`, before `__imp__VdInitializeRingBuffer`.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`,
+  `ninja ... LibertyRecomp`, default sidecar run, `--audit-load-xex`, and
+  full-root `--audit-launch-module`.
+- Final verification result:
+  `FINAL_VERIFICATION_PASS`.
+- Final default sidecar result:
+  exit code `0`, default staged `assets\default.xex` mounted, XEX preflight
+  passed, no `Runtime::LaunchModule`, no `pc_rva=`, and no
+  `Stub XFileSectorInformation!`.
+- Final `--audit-load-xex` result:
+  exit code `0`, `LoadXexImage returned 00000000; LaunchModule skipped`, no
+  `Runtime::LaunchModule`, no `pc_rva=`, and no sector-info stub.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, keeps the
+  `XFileSectorInformation` overlay green, logs
+  `host_module`, `module_base`, `pc_rva=0x0413B537`, and `resolved=yes`, and
+  still stops at the known null-read video-wrapper blocker.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/CMakeLists.txt`,
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this exception-localization/default-asset-staging stage.
+   Completion standard: only the sidecar source and audit docs are staged, the
+   commit message states the Windows/ReXGlue crash-capture boundary, and branch
+   `codex/switch-audit-20260615` is pushed.
+2. Classify and minimally address the video null-read blocker.
+   Completion standard: prove whether the null read is caused by the sidecar
+   running without a graphics system, then either overlay the newer ReXGlue
+   null guard or document why a real graphics system must be installed first.
+3. Keep Vulkan-first renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the video export
+   null guard / graphics-system ownership boundary is explicitly decided.
+
+Next stage entry condition:
+
+- Re-read this guide after the commit and push.
+- Do not change ReXGlue video behavior until the current localization stage is
+  committed and pushed.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

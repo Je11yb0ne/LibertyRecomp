@@ -15,6 +15,16 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <rex/exception_handler.h>
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
@@ -50,6 +60,13 @@ struct ExportCoverageCheck {
     const char* source_scope;
 };
 
+struct HostPcLocation {
+    std::string module_path = "unknown";
+    std::uintptr_t module_base = 0;
+    std::uintptr_t rva = 0;
+    bool resolved = false;
+};
+
 const char* yes_no(const bool value) {
     return value ? "yes" : "no";
 }
@@ -82,6 +99,32 @@ void flush_rex_loggers() {
             category.logger->flush();
         }
     }
+}
+
+HostPcLocation locate_host_pc(const std::uint64_t pc) {
+    HostPcLocation location;
+
+#ifdef _WIN32
+    HMODULE module = nullptr;
+    const auto flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    if (pc != 0 && GetModuleHandleExA(flags, reinterpret_cast<LPCSTR>(pc), &module) &&
+        module != nullptr) {
+        std::array<char, MAX_PATH> module_path{};
+        const auto path_length =
+            GetModuleFileNameA(module, module_path.data(), static_cast<DWORD>(module_path.size()));
+        location.module_base = reinterpret_cast<std::uintptr_t>(module);
+        location.rva = static_cast<std::uintptr_t>(pc) - location.module_base;
+        location.resolved = true;
+        if (path_length > 0) {
+            location.module_path.assign(module_path.data(), path_length);
+        }
+    }
+#else
+    (void)pc;
+#endif
+
+    return location;
 }
 
 const char* export_type_name(const rex::runtime::Export::Type type) {
@@ -137,10 +180,13 @@ private:
         const auto access_op =
             ex != nullptr ? ex->access_violation_operation()
                           : rex::arch::Exception::AccessViolationOperation::kUnknown;
+        const auto pc_location = locate_host_pc(pc);
 
         REXLOG_ERROR(
-            "First-launch audit: structured exception observed sequence={} code={} pc=0x{:016X} fault=0x{:016X} access={} action=continue-search",
-            sequence, exception_code_name(code), pc, fault, access_operation_name(access_op));
+            "First-launch audit: structured exception observed sequence={} code={} pc=0x{:016X} host_module={} module_base=0x{:016X} pc_rva=0x{:08X} resolved={} fault=0x{:016X} access={} action=continue-search",
+            sequence, exception_code_name(code), pc, pc_location.module_path,
+            pc_location.module_base, pc_location.rva, yes_no(pc_location.resolved), fault,
+            access_operation_name(access_op));
         flush_rex_loggers();
         return false;
     }

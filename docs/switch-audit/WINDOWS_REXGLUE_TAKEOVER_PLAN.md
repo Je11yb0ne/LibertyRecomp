@@ -422,22 +422,25 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the `XFileSectorInformation` sidecar-overlay boundary.
-   Completion standard: only the two code files and audit docs are staged; the
-   commit message states the Windows/ReXGlue file-info boundary; the current
-   codex branch is pushed.
-2. Improve first-launch exception localization.
-   Completion standard: structured exception logs include enough host module,
-   image base, and RVA information to map the current null-read PC to a source
-   or map symbol.
-3. Classify the new null-read blocker before adding another runtime fix.
-   Completion standard: identify whether it is missing import coverage, invalid
-   generated dispatch, RPF/content parser state, or ReXGlue kernel/runtime
-   state, using fresh full-root launch evidence.
+1. Commit and push the first-launch exception-localization/default-asset-staging
+   boundary.
+   Completion standard: only `LibertyRecompRex/CMakeLists.txt`,
+   `LibertyRecompRex/src/main.cpp`, and audit docs are staged; fresh
+   verification covers the default sidecar, `--audit-load-xex`, full-root
+   `--audit-launch-module`, sidecar build, and legacy Windows build.
+2. Classify the video null-read blocker before adding another runtime fix.
+   Completion standard: prove whether the `VdSetGraphicsInterruptCallback`
+   crash is caused by a missing sidecar graphics system, a bad callback/user
+   argument, generated dispatch, or ReXGlue kernel/runtime state.
+3. Compare the vendored ReXGlue video wrapper with the newer local ReXGlue
+   reference.
+   Completion standard: if the newer null guard is applicable, overlay only
+   `xboxkrnl_video.cpp` for the sidecar with a TDD red/green launch check; if it
+   is not applicable, record the concrete reason and next boundary.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
-   export, variable-mapping, and first-launch failure-capture boundary is
-   stable.
+   export, variable-mapping, first-launch failure-capture, and video
+   null-guard/graphics-system ownership boundaries are stable.
 
 ## Entry Condition For Switch Return
 

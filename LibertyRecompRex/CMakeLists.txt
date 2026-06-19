@@ -6,6 +6,7 @@ endif()
 
 set(REXGLUE_ROOT "${CMAKE_SOURCE_DIR}/glue/rexglue-sdk-main")
 set(REXGLUE_PREBUILT_DIR "${REXGLUE_ROOT}/out/win-amd64")
+set(LIBERTY_REX_DEFAULT_ASSET_DIR "${REXGLUE_ROOT}/gta4-recomp/assets")
 set(LIBERTY_REX_SIMDE_INCLUDE_DIR "${REXGLUE_ROOT}/thirdparty/simde")
 if (NOT EXISTS "${LIBERTY_REX_SIMDE_INCLUDE_DIR}/simde/x86/avx.h")
     set(LIBERTY_REX_SIMDE_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/tools/XenonRecomp/thirdparty")
@@ -15,6 +16,11 @@ if (NOT EXISTS "${LIBERTY_REX_SIMDE_INCLUDE_DIR}/simde/x86/avx.h")
         "Missing SIMDe x86 headers for LibertyRecompRex; checked "
         "${REXGLUE_ROOT}/thirdparty/simde and "
         "${CMAKE_SOURCE_DIR}/tools/XenonRecomp/thirdparty")
+endif()
+if (NOT EXISTS "${LIBERTY_REX_DEFAULT_ASSET_DIR}/default.xex")
+    message(FATAL_ERROR
+        "Missing default ReXGlue GTA IV sidecar asset: "
+        "${LIBERTY_REX_DEFAULT_ASSET_DIR}/default.xex")
 endif()
 
 set(LIBERTY_REX_REQUIRED_LIBS
@@ -62,4 +68,12 @@ target_link_libraries(LibertyRecompRex PRIVATE
     LibertyRecompLib
     bcrypt
     ws2_32
+)
+
+add_custom_command(TARGET LibertyRecompRex POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${LIBERTY_REX_DEFAULT_ASSET_DIR}"
+            "$<TARGET_FILE_DIR:LibertyRecompRex>/assets"
+    COMMENT "Staging LibertyRecompRex default ReXGlue assets"
+    VERBATIM
 )
