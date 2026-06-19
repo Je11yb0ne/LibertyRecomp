@@ -1,6 +1,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -12,11 +13,13 @@
 
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
+#include <rex/memory/utils.h>
 #include <rex/ppc/function.h>
 #include <rex/runtime.h>
 #include <rex/system/export_resolver.h>
 #include <rex/system/user_module.h>
 #include <rex/system/util/xex2_info.h>
+#include <rex/system/xobject.h>
 
 #include "gta4_config.h"
 
@@ -431,6 +434,52 @@ bool log_loaded_xex_state(rex::Runtime& runtime) {
     return true;
 }
 
+bool install_exthread_object_type_mapping(rex::Runtime& runtime) {
+    auto* export_resolver = runtime.export_resolver();
+    if (export_resolver == nullptr) {
+        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping missing export resolver");
+        return false;
+    }
+
+    auto* kernel_state = runtime.kernel_state();
+    if (kernel_state == nullptr || kernel_state->memory() == nullptr) {
+        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping missing kernel memory");
+        return false;
+    }
+
+    auto* export_entry = export_resolver->GetExportByOrdinal("xboxkrnl.exe", 0x001B);
+    if (export_entry == nullptr ||
+        export_entry->type != rex::runtime::Export::Type::kVariable) {
+        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping missing variable export row");
+        return false;
+    }
+
+    if (export_entry->variable_ptr != 0) {
+        REXLOG_INFO(
+            "XEX load audit: sidecar variable mapping module=xboxkrnl.exe ordinal=0x001B expected=ExThreadObjectType variable=0x{:08X} source=existing",
+            export_entry->variable_ptr);
+        return true;
+    }
+
+    auto* memory = kernel_state->memory();
+    const std::uint32_t object_type_guest =
+        memory->SystemHeapAlloc(sizeof(rex::system::X_OBJECT_TYPE));
+    if (object_type_guest == 0) {
+        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping allocation failed");
+        return false;
+    }
+
+    auto* object_type = memory->TranslateVirtual<rex::system::X_OBJECT_TYPE*>(object_type_guest);
+    std::memset(object_type, 0, sizeof(*object_type));
+    object_type->pool_tag = rex::memory::make_fourcc('T', 'h', 'r', 'd');
+
+    export_resolver->SetVariableMapping("xboxkrnl.exe", 0x001B, object_type_guest);
+    REXLOG_INFO(
+        "XEX load audit: sidecar variable mapping module=xboxkrnl.exe ordinal=0x001B expected=ExThreadObjectType variable=0x{:08X} pool_tag=Thrd",
+        object_type_guest);
+    return true;
+}
+
 void log_export_coverage(rex::Runtime& runtime) {
     auto* export_resolver = runtime.export_resolver();
     if (export_resolver == nullptr) {
@@ -458,7 +507,7 @@ void log_export_coverage(rex::Runtime& runtime) {
          "__imp__XeKeysConsolePrivateKeySign", "sidecar_registered_stub",
          "ReXGlue xboxkrnl/xboxkrnl_crypt.cpp"},
         {"xboxkrnl.exe", 0x001B, "ExThreadObjectType", nullptr,
-         "missing_variable_mapping", "ReXGlue xboxkrnl/xboxkrnl_module.cpp"},
+         "sidecar_variable_mapping", "ReXGlue xboxkrnl/xboxkrnl_module.cpp"},
     }};
 
     for (const auto& check : kChecks) {
@@ -524,6 +573,13 @@ int main(int argc, char** argv) {
         REXLOG_ERROR("ReXGlue runtime setup failed: {:08X}", status);
         rex::ShutdownLogging();
         return 2;
+    }
+
+    if (!install_exthread_object_type_mapping(runtime)) {
+        REXLOG_ERROR("Stopping before XEX preflight because ExThreadObjectType mapping failed");
+        runtime.Shutdown();
+        rex::ShutdownLogging();
+        return 6;
     }
 
     if (!preflight_default_xex(game_root, runtime)) {

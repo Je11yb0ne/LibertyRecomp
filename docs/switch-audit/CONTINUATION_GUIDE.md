@@ -4258,3 +4258,131 @@ Next stage entry condition:
 - Do not call `LaunchModule()`.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 86: ExThreadObjectType Sidecar Variable Mapping
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Remove the `xboxkrnl.exe:0x001B ExThreadObjectType` variable-import blocker
+  before any guest launch attempt.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Root-cause evidence:
+
+- Current repository ReXGlue `XboxkrnlModule` registers the xboxkrnl export
+  table and maps several loader/video variables, but it does not call
+  `SetVariableMapping("xboxkrnl.exe", 0x001B, ...)`.
+- `ExportResolver::SetVariableMapping(...)` is public and sets both
+  `ExportTag::kImplemented` and `variable_ptr`.
+- The fuller `work\refs\rexglue-sdk` reference solves this inside the SDK by
+  allocating `KernelGuestGlobals` in `KernelState`, initializing
+  `KernelGuestGlobals::ExThreadObjectType.pool_tag` to `Thrd`, and mapping
+  ordinal `0x001B` to that field from `XboxkrnlModule`.
+- The current repository SDK snapshot does not expose `KernelGuestGlobals`, so
+  the narrow sidecar fix allocates only a minimal `X_OBJECT_TYPE` for
+  `ExThreadObjectType`. This is a sidecar compatibility mapping, not the final
+  SDK-side kernel globals implementation.
+
+Completed in this batch:
+
+- Added `install_exthread_object_type_mapping()` in
+  `LibertyRecompRex/src/main.cpp`.
+- The helper runs after `Runtime::Setup(...)` and before `preflight_default_xex()`
+  or any opt-in `LoadXexImage()` call.
+- The helper validates the export resolver, kernel state, kernel memory, and
+  that ordinal `0x001B` is a variable export.
+- If no mapping exists, it allocates a guest `rex::system::X_OBJECT_TYPE` from
+  ReXGlue system heap, zeroes it, sets `pool_tag=Thrd`, and calls
+  `ExportResolver::SetVariableMapping("xboxkrnl.exe", 0x001B, guest_ptr)`.
+- The export-coverage diagnostic for `ExThreadObjectType` is now labeled
+  `bridge=sidecar_variable_mapping`.
+- The default sidecar path still does not call `LoadXexImage()`.
+- The opt-in sidecar path still does not call `LaunchModule()`.
+- Did not modify generated sources, thirdparty submodules, Switch packaging, or
+  the prebuilt ReXGlue libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+  with a log assertion requiring `ExThreadObjectType` to have
+  `resolver_implemented=yes`, a nonzero `variable`, and
+  `bridge=sidecar_variable_mapping`.
+- TDD red result:
+  expected failure, `TDD_RED_PASS ExThreadObjectType variable mapping missing as expected`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  reran `LibertyRecompRex.exe ... --audit-load-xex` and asserted:
+  - sidecar variable mapping install log exists,
+  - `ExThreadObjectType` coverage reports `resolver_implemented=yes`,
+  - variable pointer is nonzero,
+  - bridge label is `sidecar_variable_mapping`,
+  - loader no longer reports
+    `Unimplemented variable import: xboxkrnl.exe:0x1b`.
+- TDD green result:
+  `TDD_GREEN_PASS ExThreadObjectType sidecar variable mapping verified`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; assertions confirmed sidecar variable mapping installs,
+  `Audit LoadXexImage: no`, `XEX load audit: skipped`, no
+  `XEX load audit: export-coverage`, no `Loading XEX image:`, and no
+  `Launching module`.
+- Opt-in sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in sidecar smoke result:
+  exit code `0`; assertions confirmed sidecar variable mapping installs,
+  `XEX image loaded successfully`, `XEX load audit: export-coverage`,
+  registered sidecar stubs, `ExThreadObjectType` implemented/nonzero,
+  no `Unimplemented variable import: xboxkrnl.exe:0x1b`,
+  `LaunchModule skipped`, and no `Launching module`.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this ExThreadObjectType sidecar variable-mapping stage.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs
+   are staged, the commit message states the Windows/ReXGlue variable-mapping
+   boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Add a first-launch audit gate without enabling it by default.
+   Completion standard: `LaunchModule()` remains unreachable on default and
+   `--audit-load-xex`; any future launch attempt requires a new explicit flag,
+   pre-launch log summary, and deterministic crash/failure capture.
+3. Before a first launch attempt, decide what output proves progress.
+   Completion standard: document whether the first target is thread creation,
+   first guest PC, first imported function call, or first content/VFS blocker.
+4. Keep full SDK refresh as a later branch.
+   Completion standard: do not import `work\refs\rexglue-sdk` into the tracked
+   tree until the FFmpeg/dxbc/renderdoc packaging debt is planned separately.
+
+Next stage entry condition:
+
+- Start by adding the disabled first-launch audit gate and failure-capture plan.
+- Do not make `LaunchModule()` reachable from default or `--audit-load-xex`.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

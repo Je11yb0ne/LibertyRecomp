@@ -240,8 +240,16 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   `XAM_EXPORT_STUB(...)` / `XBOXKRNL_EXPORT_STUB(...)` definitions. The opt-in
   `--audit-load-xex` path now logs `ppc_registered=yes` with
   `bridge=sidecar_registered_stub` for all eight bridge functions while still
-  leaving `LaunchModule()` disabled. `ExThreadObjectType` remains the next
-  `missing_variable_mapping` boundary.
+  leaving `LaunchModule()` disabled.
+- `ExThreadObjectType` is now covered by a sidecar-only variable mapping. After
+  `Runtime::Setup(...)` and before any XEX load, the sidecar allocates a
+  minimal `rex::system::X_OBJECT_TYPE`, sets `pool_tag=Thrd`, and calls the
+  public `ExportResolver::SetVariableMapping("xboxkrnl.exe", 0x001B, ...)`.
+  The opt-in `--audit-load-xex` path now logs `resolver_implemented=yes`,
+  a nonzero variable pointer, `bridge=sidecar_variable_mapping`, and no longer
+  reports `Unimplemented variable import: xboxkrnl.exe:0x1b`. This is still a
+  sidecar compatibility shim; the fuller SDK reference owns this properly via
+  `KernelGuestGlobals` in `KernelState` and `XboxkrnlModule`.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -359,19 +367,18 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the registered sidecar export-stub boundary.
-   Completion standard: only `LibertyRecompRex/src/main.cpp`,
-   `LibertyRecompRex/src/pre_guest_import_bridges.cpp`, and audit docs are
-   staged; the commit message states the Windows/ReXGlue registered-export
+1. Commit and push the `ExThreadObjectType` sidecar variable-mapping boundary.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
+   staged; the commit message states the Windows/ReXGlue variable-mapping
    boundary; the current codex branch is pushed.
-2. Audit `ExThreadObjectType` variable mapping before any guest launch.
-   Completion standard: prove whether a sidecar can install the variable
-   mapping through public ReXGlue APIs after `Runtime::Setup()`, or record the
-   SDK-side integration point that must own it.
-3. Keep `LaunchModule()` behind a separate opt-in first-launch audit gate.
-   Completion standard: no guest launch attempt happens until default smoke,
-   opt-in LoadXex smoke, export coverage, and failure-capture logging are all
-   fresh and documented.
+2. Add a disabled first-launch audit gate.
+   Completion standard: `LaunchModule()` remains unreachable from default and
+   `--audit-load-xex`; a future launch requires a new explicit flag, pre-launch
+   log summary, and deterministic failure capture.
+3. Define the first-launch progress metric before enabling the gate.
+   Completion standard: document whether the next proof target is host thread
+   creation, first guest PC, first imported function call, or first content/VFS
+   blocker.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, and variable-mapping boundary is stable.
