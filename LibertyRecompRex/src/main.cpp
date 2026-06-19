@@ -30,6 +30,7 @@ constexpr const char* kDefaultXexVirtualPath = "game:\\default.xex";
 struct CommandLineOptions {
     std::filesystem::path game_root;
     bool audit_load_xex = false;
+    bool audit_launch_module = false;
 };
 
 struct ExportCoverageCheck {
@@ -189,6 +190,11 @@ CommandLineOptions parse_command_line(int argc, char** argv,
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i] != nullptr ? argv[i] : "";
         if (arg == "--audit-load-xex") {
+            options.audit_load_xex = true;
+            continue;
+        }
+        if (arg == "--audit-launch-module") {
+            options.audit_launch_module = true;
             options.audit_load_xex = true;
             continue;
         }
@@ -480,6 +486,29 @@ bool install_exthread_object_type_mapping(rex::Runtime& runtime) {
     return true;
 }
 
+bool log_first_launch_gate(rex::Runtime& runtime) {
+    auto* kernel_state = runtime.kernel_state();
+    if (kernel_state == nullptr) {
+        REXLOG_ERROR("First-launch audit: requested=yes gate=disabled missing kernel state");
+        return false;
+    }
+
+    const auto module = kernel_state->GetExecutableModule();
+    if (!module) {
+        REXLOG_ERROR("First-launch audit: requested=yes gate=disabled missing executable module");
+        return false;
+    }
+
+    REXLOG_WARN("First-launch audit: requested=yes gate=disabled; LaunchModule skipped");
+    REXLOG_INFO(
+        "First-launch audit: pre-launch module name={} entry=0x{:08X} stack=0x{:08X} hmodule=0x{:08X} title=0x{:08X}",
+        module->name(), module->entry_point(), module->stack_size(), module->hmodule_ptr(),
+        module->title_id());
+    REXLOG_INFO(
+        "First-launch audit: next proof target=host-thread-create-or-first-guest-pc capture=sidecar-log-and-process-exit");
+    return true;
+}
+
 void log_export_coverage(rex::Runtime& runtime) {
     auto* export_resolver = runtime.export_resolver();
     if (export_resolver == nullptr) {
@@ -554,6 +583,7 @@ int main(int argc, char** argv) {
     REXLOG_INFO("  Game root: {}", game_root_string);
     REXLOG_INFO("  Log path:  {}", log_path_string);
     REXLOG_INFO("  Audit LoadXexImage: {}", options.audit_load_xex ? "yes" : "no");
+    REXLOG_INFO("  Audit LaunchModule: {}", options.audit_launch_module ? "requested-disabled" : "no");
 
     rex::RuntimeConfig config;
     config.tool_mode = true;
@@ -606,6 +636,11 @@ int main(int argc, char** argv) {
             return 5;
         }
         log_export_coverage(runtime);
+        if (options.audit_launch_module && !log_first_launch_gate(runtime)) {
+            runtime.Shutdown();
+            rex::ShutdownLogging();
+            return 7;
+        }
         REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
                     load_status);
     } else {

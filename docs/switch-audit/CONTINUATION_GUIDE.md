@@ -4386,3 +4386,129 @@ Next stage entry condition:
 - Do not make `LaunchModule()` reachable from default or `--audit-load-xex`.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 87: Disabled First-Launch Audit Gate
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Add a deterministic first-launch request path without allowing default or
+  `--audit-load-xex` runs to call `LaunchModule()`.
+- Do not call `LaunchModule()` or claim Windows/Switch playability.
+
+Completed in this batch:
+
+- Added `CommandLineOptions::audit_launch_module`.
+- Added `--audit-launch-module` parsing. The flag currently implies
+  `audit_load_xex=true` so the sidecar can materialize the module and log a
+  pre-launch summary.
+- Added startup logging for `Audit LaunchModule`.
+- Added `log_first_launch_gate(rex::Runtime&)`.
+- The gate validates that `Runtime::LoadXexImage()` produced an executable
+  module, then logs:
+  - `First-launch audit: requested=yes gate=disabled; LaunchModule skipped`,
+  - module name, entry point, stack, hmodule, and title ID,
+  - next proof target:
+    `host-thread-create-or-first-guest-pc`,
+  - capture policy:
+    `sidecar-log-and-process-exit`.
+- The gate deliberately does not call `KernelState::LaunchModule()` or any
+  guest thread entry.
+- The default sidecar path still does not call `LoadXexImage()`.
+- The `--audit-load-xex` path still does not call or request the first-launch
+  gate.
+- Did not modify generated sources, thirdparty submodules, Switch packaging, or
+  the prebuilt ReXGlue libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+  with a log assertion requiring a first-launch audit gate line.
+- TDD red result:
+  expected failure, `TDD_RED_PASS first-launch audit gate log missing as expected and LaunchModule absent`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  reran `LibertyRecompRex.exe ... --audit-launch-module` and asserted:
+  - `Audit LoadXexImage: yes`,
+  - `Audit LaunchModule: requested-disabled`,
+  - `XEX image loaded successfully`,
+  - first-launch disabled-gate log exists,
+  - pre-launch module summary includes `name=default entry=0x829A0860`,
+  - next proof target log exists,
+  - no `KernelState: Launching module`,
+  - no `Launching module...`.
+- TDD green result:
+  `TDD_GREEN_PASS disabled first-launch gate verified without LaunchModule`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Default sidecar smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets`
+- Default sidecar smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: no`,
+  `Audit LaunchModule: no`, `XEX load audit: skipped`, no first-launch request,
+  no export coverage, and no `LaunchModule()` logs.
+- Opt-in LoadXex smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-load-xex`
+- Opt-in LoadXex smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: yes`,
+  `Audit LaunchModule: no`, `XEX image loaded successfully`, export coverage,
+  `ExThreadObjectType` sidecar variable mapping, no first-launch request,
+  `LaunchModule skipped`, and no `LaunchModule()` logs.
+- Disabled first-launch gate smoke command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+- Disabled first-launch gate smoke result:
+  exit code `0`; assertions confirmed `Audit LoadXexImage: yes`,
+  `Audit LaunchModule: requested-disabled`, `XEX image loaded successfully`,
+  export coverage, the first-launch disabled-gate log, pre-launch module
+  summary, next proof target log, `LaunchModule skipped`, and no
+  `LaunchModule()` logs.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this disabled first-launch gate stage.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs
+   are staged, the commit message states the Windows/ReXGlue disabled launch
+   gate boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Add first-launch failure-capture hardening before enabling launch.
+   Completion standard: decide and record whether to capture process exit
+   code, structured exception code, last ReXGlue log line, guest entry PC, or
+   first imported function call before any real launch attempt.
+3. Enable `LaunchModule()` only behind the existing `--audit-launch-module`
+   gate after failure capture is in place.
+   Completion standard: default and `--audit-load-xex` remain non-launching,
+   and the first launch attempt has a fresh rollback/debugging plan.
+4. Keep Vulkan-first work as a later boundary.
+   Completion standard: do not enable runtime graphics until first-launch
+   failure capture and module-entry behavior are understood.
+
+Next stage entry condition:
+
+- Start by adding failure-capture hardening for the existing
+  `--audit-launch-module` gate.
+- Do not make default or `--audit-load-xex` launch guest code.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.

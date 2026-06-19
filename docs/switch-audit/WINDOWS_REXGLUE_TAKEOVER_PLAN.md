@@ -250,6 +250,12 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   reports `Unimplemented variable import: xboxkrnl.exe:0x1b`. This is still a
   sidecar compatibility shim; the fuller SDK reference owns this properly via
   `KernelGuestGlobals` in `KernelState` and `XboxkrnlModule`.
+- A disabled first-launch gate now exists as `--audit-launch-module`. The flag
+  implies `--audit-load-xex`, logs `Audit LaunchModule: requested-disabled`,
+  records a pre-launch module summary, and names the next proof target as
+  `host-thread-create-or-first-guest-pc`, but it deliberately does not call
+  `KernelState::LaunchModule()`. Default and `--audit-load-xex` runs remain
+  non-launching.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -367,21 +373,23 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the `ExThreadObjectType` sidecar variable-mapping boundary.
+1. Commit and push the disabled first-launch gate boundary.
    Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
-   staged; the commit message states the Windows/ReXGlue variable-mapping
+   staged; the commit message states the Windows/ReXGlue disabled-launch-gate
    boundary; the current codex branch is pushed.
-2. Add a disabled first-launch audit gate.
-   Completion standard: `LaunchModule()` remains unreachable from default and
-   `--audit-load-xex`; a future launch requires a new explicit flag, pre-launch
-   log summary, and deterministic failure capture.
-3. Define the first-launch progress metric before enabling the gate.
-   Completion standard: document whether the next proof target is host thread
-   creation, first guest PC, first imported function call, or first content/VFS
-   blocker.
+2. Add first-launch failure-capture hardening before enabling the gate.
+   Completion standard: record the exact evidence that will be captured on a
+   real launch attempt: process exit code, structured exception code, last
+   ReXGlue log line, guest entry PC, host thread creation, or first imported
+   function call.
+3. Enable `LaunchModule()` only behind `--audit-launch-module` after failure
+   capture is verified.
+   Completion standard: default and `--audit-load-xex` remain non-launching,
+   and the first launch attempt has a fresh rollback/debugging plan.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
-   export, and variable-mapping boundary is stable.
+   export, variable-mapping, and first-launch failure-capture boundary is
+   stable.
 
 ## Entry Condition For Switch Return
 
