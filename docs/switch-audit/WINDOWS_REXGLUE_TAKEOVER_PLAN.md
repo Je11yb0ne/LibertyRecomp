@@ -289,6 +289,13 @@ Phase 3 has advanced from content/XEX preflight to a controlled
 - A fuller local GTA IV root is available for the next run:
   `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`, containing
   `default.xex`, `common.rpf`, and `xbox360.rpf`.
+- Full-root gated launch confirms the content-root blocker clears:
+  `game:\common.rpf`, `game:\xbox360.rpf`, and `game:\audio.rpf` all resolve
+  to host files. The new first runtime/API blocker is
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented` in
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp`, followed
+  by the failure-capture observer logging an access violation at fault
+  `0x0000000000000000` with access `read`.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -406,18 +413,18 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the first gated launch attempt boundary.
-   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
-   staged; the commit message states the Windows/ReXGlue first-launch
-   boundary; the current codex branch is pushed.
-2. Rerun the gated launch with the fuller local GTA IV root:
-   `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
-   Completion standard: record whether `game:\common.rpf` clears and capture
-   the next blocker with bounded process/log evidence.
-3. If the next blocker is content-root/VFS layout, document the Windows sidecar
-   game-root layout before adding runtime stubs.
-   Completion standard: default.xex, common.rpf, xbox360.rpf, audio/data, and
-   any extracted/loose-file requirements are assigned to concrete host paths.
+1. Commit and push the full-root launch evidence boundary.
+   Completion standard: only audit docs are staged; the commit message states
+   the Windows/ReXGlue full-root launch evidence boundary; the current codex
+   branch is pushed.
+2. Implement or prove the smallest `XFileSectorInformation` response.
+   Completion standard: confirm whether `xboxkrnl_io_info.cpp` is linked into
+   `LibertyRecompRex`, then add the narrowest file-info implementation or a
+   sidecar override with a recorded replacement plan.
+3. Rerun full-root `--audit-launch-module` with the bounded harness.
+   Completion standard: the run gets past the
+   `XFileSectorInformation unimplemented` log and records the next content,
+   import, function, or runtime blocker.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, and first-launch failure-capture boundary is

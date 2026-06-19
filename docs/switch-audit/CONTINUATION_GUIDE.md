@@ -4893,3 +4893,97 @@ Next stage entry condition:
 - Do not make default or `--audit-load-xex` launch guest code.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 91: Full GTA IV Root First-Launch Rerun
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Re-run the first-launch gate with a complete local GTA IV root to separate
+  missing content from runtime/API blockers.
+- Do not claim Windows/Switch playability.
+
+Completed in this batch:
+
+- No production code changed.
+- Re-ran `--audit-launch-module` against the fuller local root:
+  `D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)`.
+- Corrected the PowerShell harness quoting for game roots containing spaces.
+  The unquoted first attempt passed only `D:\GTA4` and failed in
+  `Runtime::SetupVfs`; that was a harness issue, not a runtime blocker.
+- Confirmed the full root contains:
+  - `default.xex` size `11841536`,
+  - `common.rpf` size `17223680`,
+  - `xbox360.rpf` size `60323840`,
+  - `audio.rpf` size `782336`,
+  - extracted `common\` and `xbox360\` directories.
+
+Fresh verification:
+
+- Full-root gated launch command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  launched by a PowerShell harness with a 20-second external timeout.
+- Full-root gated launch result:
+  process exited with intentional audit code `8`; the external timeout did not
+  kill it.
+- Full-root evidence:
+  - sidecar logged the correct game root with spaces,
+  - `Runtime::LaunchModule()` was called,
+  - main guest thread returned as `thread_id=2`,
+  - first guest entry reached `XThread::Execute - Calling function at 829A0860`,
+  - `game:\common.rpf` resolved to the host file instead of `[entry not found]`,
+  - `game:\xbox360.rpf` resolved to the host file,
+  - `game:\audio.rpf` resolved to the host file,
+  - secondary guest threads reached `XThread::Execute - Calling function at 829B08E0`,
+  - the new first runtime/API blocker is
+    `NtQueryInformationFile(XFileSectorInformation) unimplemented`,
+  - the failure-capture observer recorded:
+    `structured exception observed sequence=1 code=access_violation ... fault=0x0000000000000000 access=read`,
+  - the main thread was still running at post-observation,
+  - bounded audit exited with process code `8`.
+- Source evidence:
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp` has an
+  explicit `XFileSectorInformation` query branch that logs unimplemented.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this full-root rerun evidence stage.
+   Completion standard: only audit docs are staged, the commit message states
+   the Windows/ReXGlue full-root launch evidence boundary, and branch
+   `codex/switch-audit-20260615` is pushed.
+2. Implement the smallest ReXGlue-side `XFileSectorInformation` response or
+   prove the exact expected structure before changing code.
+   Completion standard: TDD red requires the full-root gated launch to get
+   past `NtQueryInformationFile(XFileSectorInformation) unimplemented`; the
+   implementation writes a defensible sector/alignment response and the next
+   run records the next blocker.
+3. Prefer fixing this in the vendored ReXGlue kernel source only if the target
+   is already compiled into the sidecar link.
+   Completion standard: confirm the edited source participates in
+   `LibertyRecompRex` before changing it; otherwise add a sidecar override with
+   an explicit replacement plan.
+4. If fixing sector info exposes another file info class, continue one
+   information-class boundary at a time.
+   Completion standard: no broad file-system rewrite without a concrete log
+   blocker.
+
+Next stage entry condition:
+
+- Start by committing and pushing this docs-only full-root evidence stage.
+- Then inspect `xboxkrnl_io_info.cpp` and the relevant info structures.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.
