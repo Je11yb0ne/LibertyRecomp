@@ -263,6 +263,17 @@ Phase 3 has advanced from content/XEX preflight to a controlled
   planned capture fields only; real structured exception / host-thread /
   first-import capture mechanics still need to be implemented before enabling
   `LaunchModule()`.
+- A first-launch failure-capture observer is now installed only for
+  `--audit-launch-module`. It uses ReXGlue's
+  `rex::arch::ExceptionHandler` chain after MMIO setup, logs unhandled
+  access-violation / illegal-instruction observations, flushes all ReXGlue
+  loggers, and returns `false` so it continues search rather than swallowing
+  the exception. Default and `--audit-load-xex` runs do not install it.
+- Current ReXGlue source differs from the fuller ReXApp lifecycle described in
+  the wiki: this repository's `KernelState::LaunchModule()` resumes the main
+  `XThread` before returning. Any direct-runtime first-launch attempt must
+  therefore log returned thread metadata immediately and treat it as
+  post-resume evidence, not a suspended pre-resume hook.
 
 ### Phase 1: API And CMake Compatibility Probe
 
@@ -380,20 +391,19 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the first-launch capture-plan boundary.
+1. Commit and push the first-launch failure-capture observer boundary.
    Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
-   staged; the commit message states the Windows/ReXGlue capture-plan
+   staged; the commit message states the Windows/ReXGlue observer
    boundary; the current codex branch is pushed.
-2. Implement or prove first-launch failure-capture mechanics before enabling
-   the gate.
-   Completion standard: structured exception capture, last-log preservation,
-   host thread creation observation, guest entry PC reporting, and first
-   imported function call capture are either implemented or explicitly recorded
-   as unavailable with the next substitute evidence.
-3. Enable `LaunchModule()` only behind `--audit-launch-module` after failure
-   capture is verified.
+2. Enable the first real `Runtime::LaunchModule()` attempt only behind
+   `--audit-launch-module`.
    Completion standard: default and `--audit-load-xex` remain non-launching,
-   and the first launch attempt has a fresh rollback/debugging plan.
+   and the gated run records either `XThread` creation, first guest PC, first
+   import call, structured exception, process exit code, or a bounded hang.
+3. If `LaunchModule()` returns an `XThread`, log thread metadata immediately.
+   Completion standard: record `thread_id`, `pcr`, `start`, `startup`,
+   `context`, `stack_size`, `flags`, and `running`; note that the current SDK
+   has already resumed the thread before returning.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, and first-launch failure-capture boundary is

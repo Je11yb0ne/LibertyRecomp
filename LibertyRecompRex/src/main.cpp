@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -11,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include <rex/exception_handler.h>
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
@@ -46,6 +48,36 @@ const char* yes_no(const bool value) {
     return value ? "yes" : "no";
 }
 
+const char* exception_code_name(const rex::arch::Exception::Code code) {
+    switch (code) {
+    case rex::arch::Exception::Code::kAccessViolation:
+        return "access_violation";
+    case rex::arch::Exception::Code::kIllegalInstruction:
+        return "illegal_instruction";
+    default:
+        return "unknown";
+    }
+}
+
+const char* access_operation_name(const rex::arch::Exception::AccessViolationOperation op) {
+    switch (op) {
+    case rex::arch::Exception::AccessViolationOperation::kRead:
+        return "read";
+    case rex::arch::Exception::AccessViolationOperation::kWrite:
+        return "write";
+    default:
+        return "unknown";
+    }
+}
+
+void flush_rex_loggers() {
+    for (const auto& category : rex::GetAllCategories()) {
+        if (category.logger) {
+            category.logger->flush();
+        }
+    }
+}
+
 const char* export_type_name(const rex::runtime::Export::Type type) {
     switch (type) {
     case rex::runtime::Export::Type::kFunction:
@@ -56,6 +88,61 @@ const char* export_type_name(const rex::runtime::Export::Type type) {
         return "unknown";
     }
 }
+
+class FirstLaunchFailureCapture {
+public:
+    explicit FirstLaunchFailureCapture(std::filesystem::path log_path)
+        : log_path_(std::move(log_path)) {}
+
+    FirstLaunchFailureCapture(const FirstLaunchFailureCapture&) = delete;
+    FirstLaunchFailureCapture& operator=(const FirstLaunchFailureCapture&) = delete;
+
+    ~FirstLaunchFailureCapture() {
+        if (installed_) {
+            rex::arch::ExceptionHandler::Uninstall(&FirstLaunchFailureCapture::HandleException,
+                                                   this);
+        }
+    }
+
+    void Install() {
+        if (installed_) {
+            return;
+        }
+
+        rex::arch::ExceptionHandler::Install(&FirstLaunchFailureCapture::HandleException, this);
+        installed_ = true;
+
+        REXLOG_INFO(
+            "First-launch audit: failure capture observer installed structured_exception=rex_arch_exception_handler handler_order=after-mmio action=continue-search last_log=flush-on-exception log_path={}",
+            log_path_.string());
+        flush_rex_loggers();
+    }
+
+private:
+    static bool HandleException(rex::arch::Exception* ex, void* data) {
+        return static_cast<FirstLaunchFailureCapture*>(data)->OnException(ex);
+    }
+
+    bool OnException(rex::arch::Exception* ex) {
+        const auto sequence = exception_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+        const auto code = ex != nullptr ? ex->code() : rex::arch::Exception::Code::kInvalidException;
+        const auto pc = ex != nullptr ? ex->pc() : 0;
+        const auto fault = ex != nullptr ? ex->fault_address() : 0;
+        const auto access_op =
+            ex != nullptr ? ex->access_violation_operation()
+                          : rex::arch::Exception::AccessViolationOperation::kUnknown;
+
+        REXLOG_ERROR(
+            "First-launch audit: structured exception observed sequence={} code={} pc=0x{:016X} fault=0x{:016X} access={} action=continue-search",
+            sequence, exception_code_name(code), pc, fault, access_operation_name(access_op));
+        flush_rex_loggers();
+        return false;
+    }
+
+    std::filesystem::path log_path_;
+    std::atomic_uint32_t exception_count_{0};
+    bool installed_ = false;
+};
 
 const std::uint8_t* checked_range(const std::vector<std::uint8_t>& data,
                                   const std::size_t offset,
@@ -581,6 +668,7 @@ int main(int argc, char** argv) {
 
     auto log_config = rex::BuildLogConfig(log_path_string.c_str(), "debug", {});
     rex::InitLogging(log_config);
+    FirstLaunchFailureCapture first_launch_failure_capture(log_path);
 
     REXLOG_INFO("LibertyRecompRex sidecar starting");
     REXLOG_INFO("  Game root: {}", game_root_string);
@@ -639,10 +727,13 @@ int main(int argc, char** argv) {
             return 5;
         }
         log_export_coverage(runtime);
-        if (options.audit_launch_module && !log_first_launch_gate(runtime)) {
-            runtime.Shutdown();
-            rex::ShutdownLogging();
-            return 7;
+        if (options.audit_launch_module) {
+            first_launch_failure_capture.Install();
+            if (!log_first_launch_gate(runtime)) {
+                runtime.Shutdown();
+                rex::ShutdownLogging();
+                return 7;
+            }
         }
         REXLOG_INFO("XEX load audit: LoadXexImage returned {:08X}; LaunchModule skipped",
                     load_status);

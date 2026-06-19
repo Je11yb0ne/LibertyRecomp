@@ -4613,3 +4613,146 @@ Next stage entry condition:
 - Do not make default or `--audit-load-xex` launch guest code.
 - Do not modify thirdparty submodules or tracked generated sources.
 - Keep Switch paused.
+
+## 2026-06-19 Windows Continuation 89: First-Launch Failure Capture Observer
+
+Current mainline goal:
+
+- Keep Switch paused at the verified LibertyRecompExeFs / NSP-like pre-guest
+  baseline.
+- Continue Windows-first ReXGlue takeover through `LibertyRecompRex`.
+- Add real failure-capture mechanics before the first `LaunchModule()` attempt.
+- Do not call `LaunchModule()` or claim Windows/Switch playability in this
+  batch.
+
+Reference evidence read in this batch:
+
+- ReXGlue CLI verification:
+  `tools\rexglue-sdk-0.8.1.32-dev.gf22cd9d-win-amd64\bin\rexglue.exe --version`
+  reports `0.8.1.32-dev.gf22cd9d`.
+- Current repository ReXGlue source:
+  `Runtime::LaunchModule()` delegates to `KernelState::LaunchModule()`.
+- Current repository `KernelState::LaunchModule()` creates the main
+  `XThread`, calls `XThread::Create()`, then immediately calls
+  `thread->Resume()` before returning the `XThread` object.
+- This differs from the fuller ReXApp lifecycle described in
+  `work\refs\rexglue-sdk-wiki\ReXApp.md`, where `OnPostLaunchModule(XThread*)`
+  is documented as a suspended-thread hook.
+- `work\refs\TheOutFit\TheOutFit_Port\src\theoutfit_app.h` shows the useful
+  long-term diagnostic shape: log post-load/pre-launch/post-launch thread
+  metadata, then run a watchdog over `ThreadState::context()`.
+- `work\refs\TheOutFit\docs\address_ledger.md` and `regression_log.md` show
+  the runtime bring-up pattern to follow after first launch: capture a concrete
+  fatal guest address or path blocker, add the smallest manual function/hook or
+  content fix, then rerun.
+- `work\refs\skate3recomp\src\exception_compat.cpp` is a useful example of a
+  project-side compatibility wrapper around generated `__imp__` code, but it
+  is not directly copied into GTA IV.
+
+Completed in this batch:
+
+- Added `FirstLaunchFailureCapture` to `LibertyRecompRex/src/main.cpp`.
+- The helper installs a sidecar observer through
+  `rex::arch::ExceptionHandler::Install(...)`.
+- The observer is installed only for `--audit-launch-module`, after
+  `Runtime::Setup()` / MMIO setup and after `LoadXexImage()` has materialized
+  the module.
+- Handler ordering is intentionally after ReXGlue's MMIO handler, so MMIO /
+  shared-memory exceptions can still be handled first.
+- If an unhandled ReXGlue-visible access violation or illegal instruction is
+  observed, the sidecar logs:
+  `First-launch audit: structured exception observed ... action=continue-search`.
+- The observer returns `false`, so it does not swallow or reinterpret the
+  exception.
+- `flush_rex_loggers()` flushes every registered ReXGlue logger when the
+  observer is installed and after an observed exception, preserving the last
+  log line as much as the current SDK allows.
+- The launch gate still logs the capture plan and still skips
+  `LaunchModule()`.
+- Default and `--audit-load-xex` paths remain non-launching and do not install
+  the observer.
+- Did not modify generated sources, thirdparty submodules, Switch packaging, or
+  the prebuilt ReXGlue libraries.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe C:\Users\Jellybone\Documents\GitHub\LibertyRecomp\glue\rexglue-sdk-main\gta4-recomp\assets --audit-launch-module`
+  with a log assertion requiring
+  `First-launch audit: failure capture observer installed`.
+- TDD red result:
+  expected failure,
+  `TDD_RED_PASS failure-capture observer missing while disabled gate baseline exists`.
+- Sidecar build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Sidecar build result:
+  succeeded. The existing vcpkg applocal warning about missing `dumpbin`,
+  `llvm-objdump`, or `objdump` remained.
+- TDD green command:
+  reran `LibertyRecompRex.exe ... --audit-launch-module` and asserted:
+  - failure-capture observer install log exists,
+  - observer action is `continue-search`,
+  - observer flush policy is `last_log=flush-on-exception`,
+  - disabled first-launch gate and capture-plan logs still exist,
+  - no `KernelState: Launching module`,
+  - no `Launching module...`.
+- TDD green result:
+  `TDD_GREEN_PASS failure-capture observer installed without LaunchModule`.
+- Legacy Windows build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 2 LibertyRecomp`
+- Legacy Windows build result:
+  succeeded with `ninja: no work to do`.
+- Sidecar smoke matrix:
+  - default run: exit code `0`, observer absent, no `LaunchModule()` logs;
+  - `--audit-load-xex`: exit code `0`, observer absent, export coverage still
+    logs, no `LaunchModule()` logs;
+  - `--audit-launch-module`: exit code `0`, observer installed, disabled gate
+    and capture-plan logs present, no `LaunchModule()` logs.
+- No Switch build was run in this batch because Switch remains paused and no
+  Switch source or packaging behavior changed.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this first-launch failure-capture observer stage.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs
+   are staged, the commit message states the Windows/ReXGlue observer
+   boundary, and branch `codex/switch-audit-20260615` is pushed.
+2. Enable the first real `Runtime::LaunchModule()` attempt only behind the
+   existing `--audit-launch-module` flag.
+   Completion standard: default and `--audit-load-xex` remain non-launching;
+   the launch-gated run has fresh log evidence for either `XThread` creation,
+   first guest PC, first import call, unhandled exception, process exit code,
+   or a bounded hang.
+3. If launch returns an `XThread`, log thread metadata immediately.
+   Completion standard: record `thread_id`, `pcr`, `start`, `startup`,
+   `context`, `stack_size`, `flags`, and `running` from the returned
+   `XThread`, noting that the current SDK has already resumed it before return.
+4. If launch hangs instead of crashing, add a small watchdog modeled on the
+   TheOutFit reference.
+   Completion standard: watchdog logs a bounded set of `ThreadState::context()`
+   registers and does not run on default or `--audit-load-xex`.
+5. Keep Vulkan-first work as a later boundary.
+   Completion standard: do not enable runtime graphics until first-launch
+   behavior is understood.
+
+Next stage entry condition:
+
+- Start by committing and pushing this observer stage.
+- Then make the first real `LaunchModule()` attempt behind
+  `--audit-launch-module` only.
+- Do not make default or `--audit-load-xex` launch guest code.
+- Do not modify thirdparty submodules or tracked generated sources.
+- Keep Switch paused.
