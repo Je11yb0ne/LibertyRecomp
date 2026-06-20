@@ -462,3 +462,26 @@ Switch should stay paused until the Windows sidecar either:
   smoke, or
 - proves a hard blocker that must be solved in codegen/content/runtime before
   Switch can benefit.
+
+## 2026-06-20 Update: Host/PPC Register Diagnostic Boundary
+
+- The first-launch sidecar observer now logs AMD64 host registers and the
+  active PPC context on the structured exception path.
+- Fresh full-root `--audit-launch-module` evidence shows the failing
+  `KeSetBasePriorityThread` call reaches the export boundary with
+  `r3=0x00000000`, `r4=0x0000000F`, and `lr=0x82169870`.
+- Generated source inspection maps `lr=0x82169870` to
+  `sub_82169578` immediately after this sequence:
+  `ExCreateThread(...) -> ObReferenceObjectByHandle(...) -> KeSetBasePriorityThread(...)`.
+- The next Windows/ReXGlue task is no longer a broad threading rewrite. It is a
+  narrow `ExCreateThread_entry(...)` / `ObReferenceObjectByHandle_entry(...)`
+  diagnostic to prove:
+  - which handle/object value `ExCreateThread` writes,
+  - whether `ObReferenceObjectByHandle` finds the object,
+  - and whether `object->guest_object()` is zero before it is written to the
+    guest output slot.
+- Fresh verification for this diagnostic boundary:
+  `WINDOWS_SMOKE_PASS default=0 load_fullroot=0 launch=8 regs=present ppc_lr=0x82169870 ppc_r3=0 current_rva=0x00045F6A`.
+- Do not patch `XObject::GetNativeObject(...)`, generated GTA IV sources, or
+  Vulkan/renderer code for this blocker. The evidence points at the
+  handle-to-native-object boundary first.

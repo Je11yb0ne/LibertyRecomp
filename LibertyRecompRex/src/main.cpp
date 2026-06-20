@@ -146,6 +146,48 @@ void log_native_stack_trace() {
 #endif
 }
 
+void log_host_registers(const rex::arch::Exception* ex) {
+#if REX_ARCH_AMD64
+    const auto* ctx = ex != nullptr ? ex->thread_context() : nullptr;
+    if (ctx == nullptr) {
+        REXLOG_ERROR("First-launch audit: host-registers unavailable=yes");
+        return;
+    }
+
+    REXLOG_ERROR(
+        "First-launch audit: host-registers rip=0x{:016X} rax=0x{:016X} rcx=0x{:016X} rdx=0x{:016X} rbx=0x{:016X} rsp=0x{:016X} rbp=0x{:016X} rsi=0x{:016X} rdi=0x{:016X} r8=0x{:016X} r9=0x{:016X} r10=0x{:016X} r11=0x{:016X} r12=0x{:016X} r13=0x{:016X} r14=0x{:016X} r15=0x{:016X}",
+        static_cast<std::uint64_t>(ctx->rip), static_cast<std::uint64_t>(ctx->rax),
+        static_cast<std::uint64_t>(ctx->rcx), static_cast<std::uint64_t>(ctx->rdx),
+        static_cast<std::uint64_t>(ctx->rbx), static_cast<std::uint64_t>(ctx->rsp),
+        static_cast<std::uint64_t>(ctx->rbp), static_cast<std::uint64_t>(ctx->rsi),
+        static_cast<std::uint64_t>(ctx->rdi), static_cast<std::uint64_t>(ctx->r8),
+        static_cast<std::uint64_t>(ctx->r9), static_cast<std::uint64_t>(ctx->r10),
+        static_cast<std::uint64_t>(ctx->r11), static_cast<std::uint64_t>(ctx->r12),
+        static_cast<std::uint64_t>(ctx->r13), static_cast<std::uint64_t>(ctx->r14),
+        static_cast<std::uint64_t>(ctx->r15));
+#else
+    (void)ex;
+#endif
+}
+
+void log_current_ppc_context_registers() {
+    const auto* ctx = rex::g_current_ppc_context;
+    if (ctx == nullptr) {
+        REXLOG_ERROR("First-launch audit: ppc-registers unavailable=yes");
+        return;
+    }
+
+    REXLOG_ERROR(
+        "First-launch audit: ppc-registers lr=0x{:08X} ctr=0x{:08X} r1=0x{:08X} r3=0x{:08X} r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X} r8=0x{:08X} r9=0x{:08X} r10=0x{:08X} r11=0x{:08X} r12=0x{:08X} r13=0x{:08X}",
+        static_cast<std::uint32_t>(ctx->lr), static_cast<std::uint32_t>(ctx->ctr.u64),
+        static_cast<std::uint32_t>(ctx->r1.u64), static_cast<std::uint32_t>(ctx->r3.u64),
+        static_cast<std::uint32_t>(ctx->r4.u64), static_cast<std::uint32_t>(ctx->r5.u64),
+        static_cast<std::uint32_t>(ctx->r6.u64), static_cast<std::uint32_t>(ctx->r7.u64),
+        static_cast<std::uint32_t>(ctx->r8.u64), static_cast<std::uint32_t>(ctx->r9.u64),
+        static_cast<std::uint32_t>(ctx->r10.u64), static_cast<std::uint32_t>(ctx->r11.u64),
+        static_cast<std::uint32_t>(ctx->r12.u64), static_cast<std::uint32_t>(ctx->r13.u64));
+}
+
 const char* export_type_name(const rex::runtime::Export::Type type) {
     switch (type) {
     case rex::runtime::Export::Type::kFunction:
@@ -206,6 +248,8 @@ private:
             sequence, exception_code_name(code), pc, pc_location.module_path,
             pc_location.module_base, pc_location.rva, yes_no(pc_location.resolved), fault,
             access_operation_name(access_op));
+        log_host_registers(ex);
+        log_current_ppc_context_registers();
         log_native_stack_trace();
         flush_rex_loggers();
         return false;

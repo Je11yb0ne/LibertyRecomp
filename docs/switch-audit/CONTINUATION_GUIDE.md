@@ -5706,3 +5706,156 @@ Next stage entry condition:
   captured.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-20 Windows Continuation 97: First-Launch Host/PPC Register Evidence
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Trace the first-launch object/native-handle null read back to the export
+  argument source before changing ReXGlue object semantics or generated GTA IV
+  code.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The native-stack capture from continuation 96 proved the first-launch crash
+  reaches `KeSetBasePriorityThread_entry(...)` from the generated GTA IV caller
+  chain and then faults in `XObject::GetNativeObject(...)`.
+- New host-register diagnostics at the exception boundary show the host call
+  reaches `XObject::GetNativeObject(...)` with a null native pointer:
+  `rdi=0x0000000000000000`, `r8=0x0000000000000000`,
+  `r9=0x00000000FFFFFFFF`.
+- New PPC-register diagnostics show the guest-side export arguments at the
+  failing call:
+  `lr=0x82169870`, `r3=0x00000000`, `r4=0x0000000F`,
+  `r5=0x7008F540`, `r7=0x82169400`, `r9=0x10000001`.
+- Generated source inspection ties `lr=0x82169870` to
+  `glue/rexglue-sdk-main/gta4-recomp/generated/gta4_recomp.1.cpp` inside
+  `sub_82169578`:
+  - `__imp__ExCreateThread(...)` is called with output handle at stack
+    `84(r1)` and creation flags in `r9`.
+  - `__imp__ObReferenceObjectByHandle(...)` is then called with the handle from
+    `84(r1)` and output object pointer at stack `80(r1)`.
+  - `__imp__KeSetBasePriorityThread(...)` is then called with `r3` loaded from
+    `80(r1)` and `r4=15`.
+- ReXGlue `ObReferenceObjectByHandle_entry(...)` writes
+  `object->guest_object()` to the output pointer after object-table lookup.
+  Therefore this blocker is now narrowed to one of:
+  - `ExCreateThread_entry(...)` returned a handle/object value that
+    `ObReferenceObjectByHandle_entry(...)` cannot convert to a native guest
+    object,
+  - `ObReferenceObjectByHandle_entry(...)` succeeds but writes
+    `object->guest_object() == 0`,
+  - or the generated caller's handle/object interpretation differs from the
+    current ReXGlue implementation.
+- ReXGlue `ExCreateThread_entry(...)` only writes `thread->guest_object()` to
+  the handle output when `creation_flags & 0x80`; the observed flags
+  `0x10000001` do not contain `0x80`, so the expected path is an object-table
+  handle followed by `ObReferenceObjectByHandle(...)` conversion.
+- The legacy LibertyRecomp/GTA4Recomp/UnleashedRecomp-style
+  `ObReferenceObjectByHandle` helpers only write the input handle back to the
+  output pointer. That is a different object model and is not directly a
+  ReXGlue fix, but it confirms this GTA IV caller expects the output slot to be
+  usable by `KeSetBasePriorityThread(...)`.
+
+Completed in this batch:
+
+- Added passive exception-time host register logging to
+  `LibertyRecompRex/src/main.cpp` for AMD64 structured exceptions.
+- Added passive exception-time PPC context logging from
+  `rex::g_current_ppc_context`.
+- Kept the observer passive. It still flushes ReXGlue loggers and returns
+  `continue-search`; it does not swallow exceptions or change guest/runtime
+  behavior.
+- Did not modify generated GTA IV sources, ReXGlue object/threading semantics,
+  Switch packaging, or thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - exit code `8`,
+  - `Runtime::LaunchModule`,
+  - the current `XObject::GetNativeObject(...)` null-read blocker,
+  - no `host-registers` line before the diagnostic change.
+- TDD red result:
+  `REG_RED_PASS host-registers missing before diagnostic exit=8`.
+- Host-register green result:
+  `REG_GREEN_PASS exit=8 ... host-registers ... rdi=0 ... r8=0 ... r9=FFFFFFFF`.
+- PPC-register TDD red result:
+  `PPC_RED_PASS ppc-registers missing before diagnostic`.
+- PPC-register green result:
+  `PPC_GREEN_PASS exit=8 ... ppc-registers lr=0x82169870 ... r3=0x00000000 r4=0x0000000F ... r9=0x10000001`.
+- The relinked crash RVA moved to `pc_rva=0x00045F6A`; map classification
+  still resolves this to `XObject::GetNativeObject(...) + 0x7A`.
+- Native stack classification remains:
+  - frame 5: `XObject::GetNativeObject(...) + 0x7A`,
+  - frame 6: `KeSetBasePriorityThread_entry(...) + 0xB1`,
+  - frame 7: host-to-guest wrapper for
+    `KeSetBasePriorityThread_entry(...) + 0x10B`.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`, `ninja ... LibertyRecomp`,
+  default sidecar run, full-root `--audit-load-xex`, and full-root
+  `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_SMOKE_PASS default=0 load_fullroot=0 launch=8 regs=present ppc_lr=0x82169870 ppc_r3=0 current_rva=0x00045F6A`.
+- Final default sidecar result:
+  exit code `0`, reaches the tool-mode pre-guest boundary, does not call
+  `Runtime::LaunchModule`, has no structured exception, has no host/PPC
+  register capture, and has no native stack capture.
+- Final full-root `--audit-load-xex` result:
+  exit code `0`, logs `LoadXexImage returned 00000000; LaunchModule skipped`,
+  does not call `Runtime::LaunchModule`, and has no exception/register/stack
+  capture.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, logs host registers, PPC
+  registers, and the native stack, does not regress to `pc_rva=0x031FE80A` or
+  `pc_rva=0x0413B537`, does not log
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`, and stops at
+  relinked `pc_rva=0x00045F6A`, which maps to
+  `XObject::GetNativeObject(...) + 0x7A`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push the host/PPC-register diagnostic stage.
+   Completion standard: only the sidecar observer and audit docs are staged;
+   the commit message states the Windows/ReXGlue guest-register diagnostic
+   boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Add a narrow ReXGlue-kernel diagnostic around
+   `ExCreateThread_entry(...)` / `ObReferenceObjectByHandle_entry(...)` without
+   changing semantics.
+   Completion standard: prove the handle written by `ExCreateThread`, the
+   object-table lookup result, and the native guest object pointer written to
+   the caller's output slot.
+3. If the diagnostic proves `guest_object() == 0` or a handle/object-model
+   mismatch, decide the minimal ReXGlue-side fix with a red/green smoke test.
+   Completion standard: the next fix changes one runtime boundary only and is
+   documented before commit.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the current
+   object/native-handle boundary is understood.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not change `XObject::GetNativeObject(...)` or generated GTA IV source for
+  this blocker.
+- Prefer ReXGlue-kernel diagnostics over guest-code edits for the next stage.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
