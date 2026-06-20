@@ -127,6 +127,25 @@ HostPcLocation locate_host_pc(const std::uint64_t pc) {
     return location;
 }
 
+void log_native_stack_trace() {
+#ifdef _WIN32
+    constexpr USHORT kStackFrameCount = 24;
+    std::array<void*, kStackFrameCount> frames{};
+    const USHORT frame_count =
+        CaptureStackBackTrace(0, kStackFrameCount, frames.data(), nullptr);
+
+    for (USHORT i = 0; i < frame_count; ++i) {
+        const auto pc = reinterpret_cast<std::uintptr_t>(frames[i]);
+        const auto pc_location = locate_host_pc(pc);
+        REXLOG_ERROR(
+            "First-launch audit: native-stack frame={} pc=0x{:016X} host_module={} module_base=0x{:016X} pc_rva=0x{:08X} resolved={}",
+            static_cast<unsigned int>(i), static_cast<std::uint64_t>(pc),
+            pc_location.module_path, static_cast<std::uint64_t>(pc_location.module_base),
+            static_cast<std::uint64_t>(pc_location.rva), yes_no(pc_location.resolved));
+    }
+#endif
+}
+
 const char* export_type_name(const rex::runtime::Export::Type type) {
     switch (type) {
     case rex::runtime::Export::Type::kFunction:
@@ -187,6 +206,7 @@ private:
             sequence, exception_code_name(code), pc, pc_location.module_path,
             pc_location.module_base, pc_location.rva, yes_no(pc_location.resolved), fault,
             access_operation_name(access_op));
+        log_native_stack_trace();
         flush_rex_loggers();
         return false;
     }

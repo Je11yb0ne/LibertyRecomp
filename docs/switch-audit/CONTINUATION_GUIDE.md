@@ -5548,3 +5548,161 @@ Next stage entry condition:
   without a fresh source/log reason.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-20 Windows Continuation 96: First-Launch Native Stack Capture
+
+Current mainline goal:
+
+- Keep Switch paused and use it only as a later migration/regression reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Make the first-launch object/native-handle null read attributable to a caller
+  before changing ReXGlue object semantics or generated GTA IV code.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The previous safe-peek stage left the full-root `--audit-launch-module` path
+  stopping at a null read inside `rex::system::XObject::GetNativeObject(...)`.
+- TDD red reran the current binary with the full GTA IV root and verified:
+  - exit code `8`,
+  - `Runtime::LaunchModule` reached,
+  - the first exception still mapped to the `XObject::GetNativeObject(...)`
+    null-read class,
+  - no `native-stack frame=` lines existed yet.
+- `Start-Process` was not reliable for this harness because it split the
+  quoted game root at `D:\GTA4`; the verified run uses direct PowerShell native
+  invocation so the full path is passed as one argument.
+- Fresh ReXGlue reference check shows the newer local
+  `work\refs\rexglue-sdk` still calls
+  `XObject::GetNativeObject<XThread>(..., thread_ptr)` in
+  `KeSetBasePriorityThread_entry(...)`; it does not already contain a null
+  guard for this boundary.
+- New reference inputs were skimmed:
+  - `RPF7-master` is a GTA V RPF7/AES-era content tool reference and is useful
+    later for content/archive research, not for this object/native-handle
+    blocker.
+  - `reblue-main` uses the expected ReXGlue project shape:
+    `generated/rexglue.cmake`, `rexglue_setup_target(...)`, `REX_DEFINE_APP`,
+    and a small `rex::ReXApp` subclass.
+  - `ReOdyssey-main` uses the same generated/ReXApp shape and shows a fuller
+    native-renderer hook pattern with Plume and explicit renderer ownership.
+    This reinforces the incremental sidecar takeover direction rather than a
+    full repo rewrite.
+
+Completed in this batch:
+
+- Added Windows-only native stack capture to
+  `LibertyRecompRex/src/main.cpp`.
+- The first-launch failure observer now logs up to `24` stack frames with:
+  - frame index,
+  - host PC,
+  - host module path,
+  - module base,
+  - module-relative RVA,
+  - module-resolution status.
+- The observer remains passive. It still flushes ReXGlue loggers and returns
+  `continue-search`; it does not swallow exceptions or change guest/runtime
+  behavior.
+- Did not modify generated GTA IV sources, ReXGlue object semantics, threading
+  exports, Switch packaging, or thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - exit code `8`,
+  - `Runtime::LaunchModule`,
+  - the current `XObject::GetNativeObject(...)` null-read blocker,
+  - no `native-stack frame=`.
+- TDD red result:
+  `RED_PASS native stack missing at current XObject blocker exit=8`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Build result:
+  succeeded and relinked `LibertyRecompRex.exe`.
+- Green full-root launch result:
+  exit code `8`, `Runtime::LaunchModule` reached, and
+  `native-stack frame=` lines were logged.
+- Because the new helper relinked the EXE, the crash RVA moved from
+  `0x0004482A` to `0x00044EEA`. Map classification confirms this is the same
+  object/native-handle blocker:
+  - target `Rva+Base=0x140044EEA`,
+  - nearest previous symbol
+    `rex::system::XObject::GetNativeObject(...)`,
+  - previous object `rexsystem:xobject.cpp.obj`,
+  - previous symbol delta `0x7A`.
+- Native stack classification:
+  - frame 5: `XObject::GetNativeObject(...) + 0x7A`,
+  - frame 6: `KeSetBasePriorityThread_entry(...) + 0xB1`,
+  - frame 7: host-to-guest wrapper for
+    `KeSetBasePriorityThread_entry(...) + 0x10B`,
+  - following frames are generated GTA IV functions around
+    `__imp__sub_82169578`, `__imp__sub_82168C08`,
+    `sub_82167DE0`, and `__imp__sub_829B3C60`.
+- The blocker is now classified as the guest calling
+  `KeSetBasePriorityThread` with a native thread pointer that reaches
+  `XObject::GetNativeObject(...)` as null/invalid. The next stage must prove
+  the actual `thread_ptr` value and intended Xbox 360 semantics before fixing.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`, `ninja ... LibertyRecomp`,
+  default sidecar run, full-root `--audit-load-xex`, and full-root
+  `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_SMOKE_PASS default=0 load_fullroot=0 launch=8 stack=present current_rva=0x00044EEA`.
+- Final default sidecar result:
+  exit code `0`, reaches the tool-mode pre-guest boundary, does not call
+  `Runtime::LaunchModule`, has no structured exception, has no
+  `native-stack frame=`, and does not hit the `XFileSectorInformation` overlay.
+- Final full-root `--audit-load-xex` result:
+  exit code `0`, logs `LoadXexImage returned 00000000; LaunchModule skipped`,
+  does not call `Runtime::LaunchModule`, has no structured exception, and has
+  no native stack capture.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, logs the native stack, does
+  not regress to `pc_rva=0x031FE80A` or `pc_rva=0x0413B537`, does not log
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`, and now stops
+  at relinked `pc_rva=0x00044EEA`, which maps to
+  `XObject::GetNativeObject(...) + 0x7A`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this native-stack diagnostic stage.
+   Completion standard: only the sidecar observer and audit docs are staged;
+   the commit message states the Windows/ReXGlue first-launch stack-capture
+   boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Add one narrow diagnostic for `KeSetBasePriorityThread_entry(...)` or its
+   generated import call path.
+   Completion standard: prove the raw `thread_ptr` and `increment` values at
+   the export boundary and identify whether null means current thread,
+   invalid parameter, or a missing guest thread-object setup step.
+3. If semantics are still unclear, use IDA/ReXGlue metadata to inspect the
+   caller chain around `sub_82169578`, `sub_82168C08`, `sub_82167DE0`, and
+   `sub_829B3C60`.
+   Completion standard: record whether the guest intentionally passes zero or
+   whether a previous runtime hook failed to materialize the thread pointer.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the current
+   object/native-handle boundary is understood.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not change `XObject::GetNativeObject(...)` or generated GTA IV source for
+  this blocker until `KeSetBasePriorityThread_entry(...)` argument evidence is
+  captured.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

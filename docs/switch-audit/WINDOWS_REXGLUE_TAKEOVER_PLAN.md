@@ -422,27 +422,37 @@ Completion standard:
 
 ## Next Small Tasks
 
-1. Commit and push the missing-indirect diagnostic safe-peek boundary.
-   Completion standard: only
-   `glue/rexglue-sdk-main/include/rex/ppc/context.h` and audit docs are staged;
-   fresh verification covers the default sidecar, `--audit-load-xex`,
-   full-root `--audit-launch-module`, sidecar build, and legacy Windows build.
-2. Classify the new object/native-handle null-read blocker before adding another
-   runtime fix.
-   Completion standard: map `pc_rva=0x0004482A` /
-   `rex::system::XObject::GetNativeObject(...)` in `rexsystem:xobject.cpp.obj`
-   to the caller/export path and decide whether the fault is caused by an
-   invalid native object pointer, object-table behavior, missing export wrapper,
-   or guest state setup.
-3. Decide whether the next diagnostic belongs in `xobject.cpp`, the relevant
-   xboxkrnl export wrapper, or the sidecar first-launch observer.
-   Completion standard: pick one minimal evidence-gathering boundary and record
-   why it is safer than broad object-table or generated-source edits.
+1. Commit and push the first-launch native-stack diagnostic boundary.
+   Completion standard: only `LibertyRecompRex/src/main.cpp` and audit docs are
+   staged, and branch `codex/switch-audit-20260615` is pushed.
+2. Investigate `KeSetBasePriorityThread_entry(...)` as the current
+   object/native-handle caller.
+   Completion standard: prove the raw `thread_ptr` and `increment` values at
+   the export boundary, then decide whether a null thread pointer should map to
+   the current thread, return an invalid-parameter/status result, or expose a
+   missing guest thread-object setup step.
+3. If export-boundary logging is insufficient, inspect the generated caller
+   chain around `sub_82169578`, `sub_82168C08`, `sub_82167DE0`, and
+   `sub_829B3C60` using IDA/ReXGlue metadata.
+   Completion standard: record whether the guest intentionally passes zero or
+   whether an earlier runtime hook failed to materialize the thread pointer.
 4. Keep Vulkan-first work as an explicit later boundary.
    Completion standard: do not enable runtime graphics until the module,
    export, variable-mapping, first-launch failure-capture, video
    null-guard/graphics-system ownership, and object/native-handle
    boundaries are stable.
+
+## New Reference Inputs
+
+- `RPF7-master`: useful later for archive/content research, but it targets the
+  RPF7/GTA V AES era and is not part of the current object/native-handle
+  blocker.
+- `reblue-main`: confirms the desired long-term ReXGlue project shape
+  (`generated/rexglue.cmake`, `rexglue_setup_target(...)`, `REX_DEFINE_APP`,
+  and a narrow `rex::ReXApp` subclass).
+- `ReOdyssey-main`: confirms the same generated/ReXApp shape and adds a useful
+  native-renderer ownership example with Plume. Treat it as a renderer/sidecar
+  architecture reference after the launch/runtime blockers are stable.
 
 ## Entry Condition For Switch Return
 
