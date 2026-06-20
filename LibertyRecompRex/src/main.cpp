@@ -32,8 +32,10 @@
 #include <rex/ppc/function.h>
 #include <rex/runtime.h>
 #include <rex/system/export_resolver.h>
+#include <rex/system/kernel_state.h>
 #include <rex/system/user_module.h>
 #include <rex/system/util/xex2_info.h>
+#include <rex/system/xmemory.h>
 #include <rex/system/xobject.h>
 #include <rex/system/xthread.h>
 
@@ -188,6 +190,38 @@ void log_current_ppc_context_registers() {
         static_cast<std::uint32_t>(ctx->r12.u64), static_cast<std::uint32_t>(ctx->r13.u64));
 }
 
+void log_thread_reference_snapshot() {
+    const auto* ctx = rex::g_current_ppc_context;
+    auto* kernel_state = rex::system::kernel_state();
+    auto* memory = kernel_state != nullptr ? kernel_state->memory() : nullptr;
+    if (ctx == nullptr || kernel_state == nullptr || memory == nullptr) {
+        REXLOG_ERROR("First-launch audit: thread-ref unavailable=yes");
+        return;
+    }
+
+    const auto stack_pointer = static_cast<std::uint32_t>(ctx->r1.u64);
+    const auto out_thread_ptr_slot = stack_pointer + 80;
+    const auto handle_slot = stack_pointer + 84;
+    const auto thread_id_slot = stack_pointer + 96;
+
+    const auto out_thread_ptr = rex::memory::load_and_swap<std::uint32_t>(
+        memory->TranslateVirtual(out_thread_ptr_slot));
+    const auto handle = rex::memory::load_and_swap<std::uint32_t>(
+        memory->TranslateVirtual(handle_slot));
+    const auto thread_id = rex::memory::load_and_swap<std::uint32_t>(
+        memory->TranslateVirtual(thread_id_slot));
+
+    const auto thread = kernel_state->object_table()->LookupObject<rex::system::XThread>(handle);
+    const bool object_found = !!thread;
+    const auto object_guest = object_found ? thread->guest_object() : 0;
+    const auto object_id = object_found ? thread->thread_id() : 0;
+
+    REXLOG_ERROR(
+        "First-launch audit: thread-ref stack=0x{:08X} out_thread_slot=0x{:08X} out_thread=0x{:08X} handle_slot=0x{:08X} handle=0x{:08X} thread_id_slot=0x{:08X} thread_id=0x{:08X} object_found={} object_guest=0x{:08X} object_thread_id=0x{:08X}",
+        stack_pointer, out_thread_ptr_slot, out_thread_ptr, handle_slot, handle, thread_id_slot,
+        thread_id, yes_no(object_found), object_guest, object_id);
+}
+
 const char* export_type_name(const rex::runtime::Export::Type type) {
     switch (type) {
     case rex::runtime::Export::Type::kFunction:
@@ -250,6 +284,7 @@ private:
             access_operation_name(access_op));
         log_host_registers(ex);
         log_current_ppc_context_registers();
+        log_thread_reference_snapshot();
         log_native_stack_trace();
         flush_rex_loggers();
         return false;

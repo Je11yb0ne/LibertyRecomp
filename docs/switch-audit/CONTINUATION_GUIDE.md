@@ -5859,3 +5859,154 @@ Next stage entry condition:
 - Prefer ReXGlue-kernel diagnostics over guest-code edits for the next stage.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-20 Windows Continuation 98: Thread Reference Stack Diagnostic
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Prove the `ExCreateThread(...) -> ObReferenceObjectByHandle(...) ->
+  KeSetBasePriorityThread(...)` data flow without overriding prebuilt
+  `rexkernel.lib` exports.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- Do not overlay the whole ReXGlue
+  `xboxkrnl_threading.cpp` / `xboxkrnl_ob.cpp` sources for this diagnostic.
+  `LibertyRecompRex` currently links prebuilt `rexkernel` and only sidecar
+  overlays narrow source files; replacing broad kernel objects risks duplicate
+  export symbols and obscures the current blocker.
+- The safer diagnostic point is the existing first-launch exception observer.
+  At the exception, `rex::g_current_ppc_context` still has `r1=0x7008F4F0`
+  inside `sub_82169578`, so the observer can read the generated caller's stack:
+  - `80(r1)` is the output native thread pointer slot passed to
+    `ObReferenceObjectByHandle(...)`,
+  - `84(r1)` is the thread handle returned by `ExCreateThread(...)`,
+  - `96(r1)` is the nearby thread-id output area.
+- TDD red proved the current blocker still reaches
+  `XObject::GetNativeObject(...)` and that no `thread-ref` diagnostic existed:
+  `THREAD_REF_RED_PASS missing thread-ref at current blocker exit=8`.
+- TDD green proved:
+  - `out_thread=0x00000000`,
+  - `handle=0xF8000CE0` in the latest run,
+  - `object_found=yes`,
+  - `object_guest=0x00694018`,
+  - `object_thread_id=0x0000000E`.
+- This proves `ExCreateThread(...)` did create/register an `XThread`, and
+  `kernel_state()->object_table()->LookupObject<XThread>(handle)` can find it.
+  The null passed to `KeSetBasePriorityThread(...)` is the caller output slot
+  remaining zero, not a missing thread object.
+- ReXGlue `ObReferenceObjectByHandle_entry(...)` checks the incoming
+  `object_type_ptr` against Xenia dummy values:
+  `Event=0xD00EBEEF`, `Semaphore=0xD017BEEF`, `Thread=0xD01BBEEF`.
+- The current sidecar `install_exthread_object_type_mapping(...)` maps
+  `ExThreadObjectType` to an allocated `X_OBJECT_TYPE` guest structure
+  (`0x0001B000` in the latest run) with `pool_tag=Thrd`.
+- The XEX loader patches the import variable to that allocated address:
+  `Patched variable import xboxkrnl:0x1b (ExThreadObjectType) -> 0x1b000`.
+- Therefore the next likely root cause is an object-type representation
+  mismatch: GTA IV passes the patched `ExThreadObjectType` value to
+  `ObReferenceObjectByHandle(...)`, but ReXGlue's type check expects
+  `0xD01BBEEF`, returns a type mismatch before writing the output pointer, and
+  the generated caller then passes zero to `KeSetBasePriorityThread(...)`.
+
+Completed in this batch:
+
+- Added `log_thread_reference_snapshot()` to the sidecar first-launch observer.
+- The diagnostic reads guest stack slots with
+  `rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual(...))`.
+- The diagnostic performs an object-table lookup for the handle slot and logs
+  whether an `XThread` object exists plus its `guest_object()` value.
+- Kept the observer passive. It still flushes ReXGlue loggers and returns
+  `continue-search`; it does not swallow exceptions or change guest/runtime
+  behavior.
+- Did not modify generated GTA IV sources, ReXGlue prebuilt kernel exports,
+  Switch packaging, or thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring:
+  - exit code `8`,
+  - `Runtime::LaunchModule`,
+  - current `XObject::GetNativeObject(...)` blocker,
+  - existing PPC-register capture,
+  - no `thread-ref` line.
+- TDD red result:
+  `THREAD_REF_RED_PASS missing thread-ref at current blocker exit=8`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Build result:
+  succeeded and relinked `LibertyRecompRex.exe`.
+- TDD green result:
+  `THREAD_REF_GREEN_PASS exit=8 pc_rva=0x000467AA ... out_thread=0x00000000 ... handle=0xF8000CE0 ... object_found=yes object_guest=0x00694018 object_thread_id=0x0000000E`.
+- The relinked crash RVA moved to `pc_rva=0x000467AA`; map classification
+  still resolves this to `XObject::GetNativeObject(...) + 0x7A` because
+  `GetNativeObject(...)` now starts at `0x140046730`.
+- Native stack classification remains:
+  - frame 5: `XObject::GetNativeObject(...) + 0x7A`,
+  - frame 6: `KeSetBasePriorityThread_entry(...) + 0xB1`,
+  - frame 7: host-to-guest wrapper for
+    `KeSetBasePriorityThread_entry(...) + 0x10B`.
+- Final verification command:
+  `diff --check`, `ninja ... LibertyRecompRex`, `ninja ... LibertyRecomp`,
+  default sidecar run, full-root `--audit-load-xex`, and full-root
+  `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_THREAD_REF_SMOKE_PASS default=0 load_fullroot=0 launch=8 current_rva=0x000467AA ... out_thread=0x00000000 ... handle=0xF8000CDC ... object_found=yes object_guest=0x00694018 object_thread_id=0x0000000E`.
+- Final default sidecar result:
+  exit code `0`, reaches the tool-mode pre-guest boundary, does not call
+  `Runtime::LaunchModule`, and has no exception/register/thread-ref/stack
+  capture.
+- Final full-root `--audit-load-xex` result:
+  exit code `0`, logs `LoadXexImage returned 00000000; LaunchModule skipped`,
+  does not call `Runtime::LaunchModule`, and has no
+  exception/register/thread-ref/stack capture.
+- Final full-root `--audit-launch-module` result:
+  exit code `8`, reaches `Runtime::LaunchModule`, logs host registers, PPC
+  registers, the thread-ref snapshot, and the native stack, does not regress to
+  `pc_rva=0x031FE80A` or `pc_rva=0x0413B537`, does not log
+  `NtQueryInformationFile(XFileSectorInformation) unimplemented`, and stops at
+  relinked `pc_rva=0x000467AA`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push the thread-ref diagnostic stage.
+   Completion standard: only the sidecar observer and audit docs are staged;
+   the commit message states the Windows/ReXGlue thread-reference diagnostic
+   boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Use TDD to change only the `ExThreadObjectType` sidecar mapping.
+   Completion standard: red proves the current `0x0001B000` mapping leaves
+   `out_thread=0`; green proves the mapping aligns with
+   `ObReferenceObjectByHandle(...)` and the first-launch run advances to the
+   next blocker.
+3. If the `ExThreadObjectType` mapping fix advances past this blocker, record
+   the new first-launch blocker before touching renderer, content, or broader
+   kernel behavior.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable runtime graphics until the current
+   object/native-handle boundary is understood and committed.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not change generated GTA IV source for this blocker.
+- Do not replace prebuilt `rexkernel` threading/object exports broadly.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

@@ -485,3 +485,25 @@ Switch should stay paused until the Windows sidecar either:
 - Do not patch `XObject::GetNativeObject(...)`, generated GTA IV sources, or
   Vulkan/renderer code for this blocker. The evidence points at the
   handle-to-native-object boundary first.
+
+## 2026-06-20 Update: Thread Reference Stack Diagnostic
+
+- The sidecar now captures the generated caller's `sub_82169578` stack slots at
+  the first-launch exception without overriding prebuilt `rexkernel` exports.
+- Latest evidence:
+  `out_thread=0x00000000`, `handle=0xF8000CE0`, `object_found=yes`,
+  `object_guest=0x00694018`, `object_thread_id=0x0000000E`.
+- Final verification for this diagnostic boundary:
+  `WINDOWS_THREAD_REF_SMOKE_PASS default=0 load_fullroot=0 launch=8 current_rva=0x000467AA ... out_thread=0x00000000 ... object_found=yes object_guest=0x00694018`.
+- This proves `ExCreateThread(...)` created and registered an `XThread`; the
+  output native-thread slot passed to `KeSetBasePriorityThread(...)` remains
+  zero.
+- The likely root cause is now the `ExThreadObjectType` value:
+  the sidecar currently maps ordinal `0x001B` to an allocated guest
+  `X_OBJECT_TYPE` structure such as `0x0001B000`, while ReXGlue
+  `ObReferenceObjectByHandle_entry(...)` expects the thread dummy type value
+  `0xD01BBEEF`.
+- Next implementation boundary: use TDD to change only the
+  `ExThreadObjectType` sidecar mapping and verify whether launch advances to a
+  new blocker. Do not modify generated GTA IV sources or broad ReXGlue kernel
+  objects for this boundary.
