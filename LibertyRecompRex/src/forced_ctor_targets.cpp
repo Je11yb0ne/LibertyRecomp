@@ -7,6 +7,7 @@
 #include <rex/system/processor.h>
 
 extern "C" PPC_FUNC(sub_827EEDB8);
+extern "C" PPC_FUNC(sub_827D8830);
 extern "C" PPC_FUNC(sub_827FE360);
 
 namespace liberty_rex {
@@ -80,6 +81,10 @@ PPC_FUNC(sub_829F9DC8) {
     ctor_call_827EEDB8(ctx, base, -2095972352 + 20132, 0, -2113404928 + 12948, 0);
 }
 
+PPC_FUNC(sub_828076F8) {
+    sub_827D8830(ctx, base);
+}
+
 struct ForcedCtorTarget {
     std::uint32_t guest;
     PPCFunc* host;
@@ -97,6 +102,10 @@ constexpr std::array<ForcedCtorTarget, 9> kForcedCtorTargets{{
     {0x829F9DC8, sub_829F9DC8},
 }};
 
+constexpr std::array<ForcedCtorTarget, 1> kMidFunctionTargets{{
+    {0x828076F8, sub_828076F8},
+}};
+
 }  // namespace
 
 bool InstallForcedCtorTargets(rex::Runtime& runtime) {
@@ -109,9 +118,14 @@ bool InstallForcedCtorTargets(rex::Runtime& runtime) {
     for (const auto& target : kForcedCtorTargets) {
         processor->SetFunction(target.guest, target.host);
     }
+    for (const auto& target : kMidFunctionTargets) {
+        processor->SetFunction(target.guest, target.host);
+    }
 
     REXLOG_INFO("Forced ctor target audit: registered {} sidecar dynamic constructor targets",
                 kForcedCtorTargets.size());
+    REXLOG_INFO("Mid-function target audit: registered {} sidecar thunk targets",
+                kMidFunctionTargets.size());
     return true;
 }
 

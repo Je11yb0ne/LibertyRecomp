@@ -608,3 +608,29 @@ Switch should stay paused until the Windows sidecar either:
 - Final verification for this boundary:
   `WINDOWS_REX_CTOR_FINAL_PASS default=0 load=0 launch=8
   remaining_828076F8=yes`.
+
+## 2026-06-21 Update: Mid-Function Callback Thunk Mapping
+
+- The repeated `0x828076F8` missing-indirect target has been classified and
+  advanced in the Windows `LibertyRecompRex` sidecar.
+- Root cause: generated callbacks initialized by `__imp__sub_827F9C28` and
+  `__imp__sub_82803B38` store `0x828076F8` in a structure field used by
+  `__imp__sub_82805578`. `0x828076F8` is not a top-level generated function,
+  but it is a real mid-function entry at `sub_828076F0 + 0x8`.
+- Minimal fix: the sidecar now registers `0x828076F8` as a thunk that calls
+  `sub_827D8830(ctx, base)`, matching the generated branch at that address and
+  avoiding a no-op stub.
+- Fresh red/green evidence:
+  - red was the previous final smoke with repeated `[MISSING-FUNC] ...
+    828076F8`;
+  - green logs
+    `Mid-function target audit: registered 1 sidecar thunk targets` and no
+    longer emits `0x828076F8` in missing-indirect stderr.
+- The old nine forced ctor targets and `ExThreadObjectType -> 0xd01bbeef`
+  remain green.
+- New launch boundary after this stage: repeated missing-indirect calls to
+  `0x821735D0` from `lr=0x8216779C`. Initial map/source classification places
+  the caller inside generated `__imp__sub_82167748` and the target inside
+  generated `sub_82173588 + 0x48`, before `sub_821735F4`.
+- Final verification for this boundary:
+  `WINDOWS_REX_MIDFUNC_FINAL_PASS default=0 load=0 launch=8 next=821735D0`.

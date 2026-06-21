@@ -6301,3 +6301,130 @@ Next stage entry condition:
 - Do not invent a no-op stub for `0x828076F8` without knowing its side effects.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-21 Windows Continuation 101: Mid-Function Callback Thunk Mapping
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Clear only the proven `0x828076F8` missing-indirect thunk after classifying
+  its generated-code context.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- After the forced ctor target stage, full-root launch no longer reported the
+  nine legacy `0x829F....` ctor targets.
+- The remaining repeated missing-indirect target was `0x828076F8`, with caller
+  return addresses mainly `lr=0x828055C4` and `lr=0x828055D8`.
+- `__imp__sub_82805578` loads a callback from object field `+36` and calls it
+  with `r3=[object+40]` and `r4=[object+28]`.
+- Generated constructors `__imp__sub_827F9C28` and `__imp__sub_82803B38`
+  initialize a 56-byte callback structure:
+  - field `+32` defaults to `0x828076F0`;
+  - field `+36` defaults to `0x828076F8`.
+- `0x828076F0` is an existing generated function:
+  `mullw r3,r4,r5; b 0x827D8830`.
+- `0x828076F8` is the mid-function entry inside that generated function,
+  starting at the tail branch to `sub_827D8830` and intentionally skipping the
+  multiply. This is a real callback thunk, not a safe no-op stub.
+
+Completed in this batch:
+
+- Extended `LibertyRecompRex/src/forced_ctor_targets.cpp` with a sidecar-only
+  mid-function thunk for `0x828076F8`.
+- The thunk calls `sub_827D8830(ctx, base)` directly, matching the branch target
+  at `sub_828076F0 + 0x8`.
+- Registered the thunk with `runtime.processor()->SetFunction(...)` after
+  `runtime.Setup(...)`.
+- Kept the change sidecar-only. Did not modify generated GTA IV source,
+  ReXGlue prebuilt kernel libraries, Switch packaging, renderer code, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- TDD red evidence:
+  the previous final launch smoke ended with
+  `WINDOWS_REX_CTOR_FINAL_PASS default=0 load=0 launch=8
+  remaining_828076F8=yes` and repeated `[MISSING-FUNC] ... 828076F8` lines.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`.
+- Build result:
+  succeeded and relinked `LibertyRecompRex.exe`; the existing applocal helper
+  still warns that dumpbin/objdump is unavailable, but the build exits `0`.
+- Green full-root launch result:
+  `MIDFUNC_GREEN_PASS exit=8`.
+- Green evidence:
+  - `Mid-function target audit: registered 1 sidecar thunk targets`;
+  - no `0x828076F8` remains in the missing-indirect stderr log;
+  - the old nine `0x829F....` ctor targets remain cleared;
+  - `ExThreadObjectType` remains patched to `0xd01bbeef`;
+  - no old `thread-ref ... out_thread=0x00000000` diagnostic.
+- New missing-indirect boundary:
+  `0x821735D0`, with caller `lr=0x8216779C`.
+- Initial source/map classification:
+  - `lr=0x8216779C` is inside generated `__imp__sub_82167748`;
+  - `0x821735D0` lies inside generated `sub_82173588 + 0x48`;
+  - nearest next generated function is `sub_821735F4`, `0x24` bytes later.
+- Green log paths:
+  - stdout:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-midfn-green-out-3a9a5c41-6368-4179-858c-4c21580770b6.log`;
+  - stderr with the new `0x821735D0` boundary:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-midfn-green-err-3a9a5c41-6368-4179-858c-4c21580770b6.log`;
+  - sidecar log:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-midfn-green-side-3a9a5c41-6368-4179-858c-4c21580770b6.log`.
+- Final verification command:
+  scoped `git diff --check`, `ninja ... LibertyRecompRex LibertyRecomp`,
+  default sidecar run, full-root `--audit-load-xex`, and full-root
+  `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_REX_MIDFUNC_FINAL_PASS default=0 load=0 launch=8 next=821735D0`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final2-default-side-720af0b7-58e1-4895-a53b-2bcc2dc7a227.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final2-load-side-720af0b7-58e1-4895-a53b-2bcc2dc7a227.log`;
+  - full-root `--audit-launch-module`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final2-launch-side-720af0b7-58e1-4895-a53b-2bcc2dc7a227.log`;
+  - launch stderr with the new `0x821735D0` diagnostics:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final2-launch-err-720af0b7-58e1-4895-a53b-2bcc2dc7a227.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/forced_ctor_targets.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Run final scoped verification for this mid-function thunk stage.
+   Completion standard: scoped `git diff --check`, `ninja ...
+   LibertyRecompRex LibertyRecomp`, default sidecar, full-root
+   `--audit-load-xex`, and full-root `--audit-launch-module` all pass their
+   expected audit gates.
+2. Commit and push this `0x828076F8` thunk mapping stage.
+   Completion standard: only the sidecar thunk source and audit docs are
+   staged; the commit message states the Windows/ReXGlue mid-function thunk
+   mapping boundary; branch `codex/switch-audit-20260615` is pushed.
+3. Classify repeated `0x821735D0`.
+   Completion standard: identify whether it is another mid-function entry,
+   missing generated function mapping, vtable target restoration issue, or a
+   codegen function-boundary omission before editing code.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while the current
+   runtime/module/function-mapping blockers are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for `0x821735D0` until source/log
+  evidence proves it is the correct layer.
+- Do not invent no-op stubs for mid-function targets.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
