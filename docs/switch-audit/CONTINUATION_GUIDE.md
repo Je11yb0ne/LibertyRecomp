@@ -6019,3 +6019,145 @@ Next stage entry condition:
 - Do not replace prebuilt `rexkernel` threading/object exports broadly.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-21 Windows Continuation 99: ExThreadObjectType Dummy Mapping
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Fix only the proven `ExThreadObjectType` object-type representation mismatch
+  before touching generated GTA IV source, renderer code, or broad ReXGlue
+  kernel exports.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The previous thread-reference diagnostic proved the first-launch caller's
+  `out_thread` slot stayed zero even though `ExCreateThread(...)` had created
+  and registered an `XThread`.
+- Fresh red verification reproduced the current bad state before the fix:
+  `ExThreadObjectType` was patched into the XEX as `0x0001B000`, and the
+  first-launch exception still logged `thread-ref ... out_thread=0x00000000`.
+- ReXGlue's `XexModule::LoadXexContinue()` writes
+  `Export::variable_ptr` directly into the guest import slot for variable
+  imports. If a variable export is not implemented, ReXGlue writes a
+  Xenia-style sentinel value: `0xD000BEEF | (ordinal << 16)`.
+- ReXGlue's `ObReferenceObjectByHandle_entry(...)` explicitly compares object
+  type pointers against those sentinel values:
+  `Event=0xD00EBEEF`, `Semaphore=0xD017BEEF`, `Thread=0xD01BBEEF`.
+- Therefore the sidecar's previous allocated guest `X_OBJECT_TYPE` mapping at
+  `0x0001B000` was the wrong representation for this ReXGlue kernel path.
+
+Completed in this batch:
+
+- Changed only `LibertyRecompRex/src/main.cpp`:
+  `install_exthread_object_type_mapping(...)` now maps
+  `xboxkrnl.exe:0x001B (ExThreadObjectType)` to `0xD01BBEEF`.
+- Removed the sidecar allocation of a fake guest `X_OBJECT_TYPE` for this
+  variable import.
+- Kept the change sidecar-only. Did not modify generated GTA IV source,
+  ReXGlue prebuilt kernel libraries, Switch packaging, renderer code, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring the current bad state:
+  - `Patched variable import xboxkrnl:0x1b (ExThreadObjectType) -> 0x1b000`,
+  - `thread-ref ... out_thread=0x00000000`.
+- TDD red result:
+  `RED_PASS current ExThreadObjectType mapping leaves thread reference null exit=8`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`
+- Build result:
+  succeeded and relinked `LibertyRecompRex.exe`.
+- Green full-root launch result:
+  `GREEN_PASS ExThreadObjectType dummy mapping installed and old null-thread blocker cleared exit=8 missing_func_count=256`.
+- Green evidence:
+  - `Patched variable import xboxkrnl:0x1b (ExThreadObjectType) -> 0xd01bbeef`,
+  - no old `thread-ref ... out_thread=0x00000000` diagnostic,
+  - old `KeSetBasePriorityThread(...) -> XObject::GetNativeObject(...)`
+    null-thread blocker is cleared.
+- Follow-up launch evidence after this fix:
+  - the old null-thread blocker is cleared;
+  - one green run observed a structured exception at `pc_rva=0x039D37D9`,
+    `fault=0x0000000100000000`, `access=read`;
+  - final full smoke after the docs update reached the bounded observation
+    exit without logging a structured exception, with the main thread still
+    running.
+- The one observed access-violation map classification is:
+  - `pc_rva=0x039D37D9` maps to
+    `LibertyRecompLib:gta4_recomp.52.cpp.obj`
+    `__imp__sub_827EB618 + 0x609`,
+  - native frame 6 `pc_rva=0x039D4178` maps to
+    `.weak.sub_827D7C88.default.__imp__sub_827D6BF8 + 0x58`,
+  - frame 7 `pc_rva=0x021C5712` maps inside
+    `__imp__sub_8251D2B0`,
+  - frame 8 `pc_rva=0x0059C30F` maps inside
+    `__imp__sub_821B9DA8`.
+- Missing-indirect diagnostics are now visible during the launch run:
+  `missing_func_count=256..257` in stderr. The first targets are
+  `0x829F6F60`, `0x829F6F80`, `0x829F6FA0`, `0x829F6FC0`,
+  `0x829F7020`, `0x829F70E0`, `0x829F7100`, `0x829F71E8`,
+  `0x829F9DC8`, followed by repeated `0x828076F8`.
+- These did not prevent this stage's green result, but they are now a
+  documented function-mapping debt for the next boundary.
+- Final fresh smoke summary for this stage:
+  `WINDOWS_REX_EXTHREAD_SMOKE_PASS default=0 load=0 launch=8
+  launch_boundary=bounded-or-observed-access-violation missing_func_count>=1`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-default-side-d9fee1ff-f1db-43e7-a494-69a4fbc5ad59.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-load-side-4deec709-85e2-49c5-97bf-b721fdda2c74.log`;
+  - full-root `--audit-launch-module`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-launch-side-b7efb028-e812-4be1-b1ee-bb1d706ce20d.log`;
+  - launch stderr with missing-indirect diagnostics:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-launch-err-f3f5c952-ddca-4a8a-a2e4-5cdc999659a6.log`.
+- Final launch smoke exited with audit code `8`, kept the main thread running
+  through the bounded observation window, and logged
+  `missing_func_count=257`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `thirdparty/concurrentqueue`,
+  `thirdparty/implot`,
+  `thirdparty/plume`,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `ExThreadObjectType` sidecar mapping stage.
+   Completion standard: only the sidecar mapping change and audit docs are
+   staged; the commit message states the Windows/ReXGlue object-type mapping
+   boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Reproduce and classify the next launch boundary.
+   Completion standard: determine whether the stable next blocker is the
+   bounded running thread, the observed `__imp__sub_827EB618 + 0x609`
+   access violation, or the missing-indirect set; identify the source/log
+   evidence before editing code.
+3. Classify the missing-indirect function-mapping debt.
+   Completion standard: list whether the first targets correspond to legacy
+   `LibertyRecomp/kernel/imports.cpp` dynamic functions, ReXGlue generated
+   functions, or missing codegen function mappings; do not patch them until a
+   specific first-launch failure requires it.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while the current
+   runtime/module/function-mapping blockers are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for the next launch blocker until
+  source/log evidence proves it is the correct layer.
+- Do not replace broad ReXGlue kernel objects for the missing-indirect debt.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

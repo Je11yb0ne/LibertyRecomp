@@ -541,3 +541,39 @@ Switch should stay paused until the Windows sidecar either:
   `ExThreadObjectType` sidecar mapping and verify whether launch advances to a
   new blocker. Do not modify generated GTA IV sources or broad ReXGlue kernel
   objects for this boundary.
+
+## 2026-06-21 Update: ExThreadObjectType Dummy Mapping
+
+- The `ExThreadObjectType` boundary has been advanced in the Windows
+  `LibertyRecompRex` sidecar.
+- Root cause: the sidecar previously marked `xboxkrnl.exe:0x001B` implemented
+  with an allocated guest `X_OBJECT_TYPE` address such as `0x0001B000`.
+  ReXGlue's XEX loader writes `Export::variable_ptr` directly into variable
+  import slots, while `ObReferenceObjectByHandle_entry(...)` expects the
+  Xenia-style object-type sentinel `0xD01BBEEF` for thread objects.
+- Minimal fix: `install_exthread_object_type_mapping(...)` now maps
+  `ExThreadObjectType` to `0xD01BBEEF` and no longer allocates a fake guest
+  object type.
+- Fresh red/green evidence:
+  - red reproduced `ExThreadObjectType -> 0x1b000` plus
+    `thread-ref ... out_thread=0x00000000`;
+  - green logs
+    `Patched variable import xboxkrnl:0x1b (ExThreadObjectType) -> 0xd01bbeef`
+    and clears the old null-thread `KeSetBasePriorityThread(...)` blocker.
+- Follow-up launch evidence after the fix:
+  - the old null-thread `KeSetBasePriorityThread(...)` blocker is cleared;
+  - one green run observed `pc_rva=0x039D37D9`, fault
+    `0x0000000100000000`, `access=read`, mapping to generated
+    `__imp__sub_827EB618 + 0x609` in `gta4_recomp.52.cpp`;
+  - final full smoke reached the bounded observation exit with the guest
+    thread still running instead of reproducing that structured exception.
+- Missing-indirect diagnostics are also visible in the same run
+  (`missing_func_count=256..257`). The first targets include `0x829F6F60`
+  through `0x829F9DC8`, then repeated `0x828076F8`. Treat this as the next
+  function-mapping audit debt, not as a reason to edit generated code blindly.
+- Final full smoke for this stage passed with `default=0`, `load=0`,
+  `launch=8`, `ExThreadObjectType -> 0xd01bbeef`, no old
+  `thread-ref ... out_thread=0`, and a bounded running-thread launch exit.
+- The next Windows task is to reproduce/classify the next launch boundary and
+  the missing-indirect target set from source/log evidence before making
+  another code change.

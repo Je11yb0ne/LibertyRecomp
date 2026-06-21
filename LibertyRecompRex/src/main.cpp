@@ -685,12 +685,6 @@ bool install_exthread_object_type_mapping(rex::Runtime& runtime) {
         return false;
     }
 
-    auto* kernel_state = runtime.kernel_state();
-    if (kernel_state == nullptr || kernel_state->memory() == nullptr) {
-        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping missing kernel memory");
-        return false;
-    }
-
     auto* export_entry = export_resolver->GetExportByOrdinal("xboxkrnl.exe", 0x001B);
     if (export_entry == nullptr ||
         export_entry->type != rex::runtime::Export::Type::kVariable) {
@@ -705,22 +699,14 @@ bool install_exthread_object_type_mapping(rex::Runtime& runtime) {
         return true;
     }
 
-    auto* memory = kernel_state->memory();
-    const std::uint32_t object_type_guest =
-        memory->SystemHeapAlloc(sizeof(rex::system::X_OBJECT_TYPE));
-    if (object_type_guest == 0) {
-        REXLOG_ERROR("XEX load audit: ExThreadObjectType mapping allocation failed");
-        return false;
-    }
-
-    auto* object_type = memory->TranslateVirtual<rex::system::X_OBJECT_TYPE*>(object_type_guest);
-    std::memset(object_type, 0, sizeof(*object_type));
-    object_type->pool_tag = rex::memory::make_fourcc('T', 'h', 'r', 'd');
-
-    export_resolver->SetVariableMapping("xboxkrnl.exe", 0x001B, object_type_guest);
+    // ReXGlue's ObReferenceObjectByHandle_entry compares object-type imports
+    // against the Xenia-style D###BEEF sentinel values, not an allocated guest
+    // X_OBJECT_TYPE address. Ordinal 0x001B maps to D01BBEEF.
+    constexpr std::uint32_t kExThreadObjectType = 0xD01BBEEF;
+    export_resolver->SetVariableMapping("xboxkrnl.exe", 0x001B, kExThreadObjectType);
     REXLOG_INFO(
-        "XEX load audit: sidecar variable mapping module=xboxkrnl.exe ordinal=0x001B expected=ExThreadObjectType variable=0x{:08X} pool_tag=Thrd",
-        object_type_guest);
+        "XEX load audit: sidecar variable mapping module=xboxkrnl.exe ordinal=0x001B expected=ExThreadObjectType variable=0x{:08X} source=xenia_dummy_type",
+        kExThreadObjectType);
     return true;
 }
 
