@@ -9,6 +9,7 @@
 extern "C" PPC_FUNC(sub_827EEDB8);
 extern "C" PPC_FUNC(sub_827D8830);
 extern "C" PPC_FUNC(sub_827FE360);
+extern "C" PPC_FUNC(sub_821735F4);
 
 namespace liberty_rex {
 namespace {
@@ -85,6 +86,20 @@ PPC_FUNC(sub_828076F8) {
     sub_827D8830(ctx, base);
 }
 
+PPC_FUNC(sub_821735D0) {
+    ctx.r10.u64 = PPC_LOAD_U8(ctx.r3.u32 + 60);
+    ctx.r11.u64 = ctx.r4.u32 & 0xFF;
+    ctx.r9.u64 = ctx.r5.u64;
+    ctx.r5.u64 = ctx.r6.u64;
+
+    if (ctx.r11.u32 >= ctx.r10.u32) {
+        ctx.r3.u64 = 0x80070057;
+        return;
+    }
+
+    sub_821735F4(ctx, base);
+}
+
 struct ForcedCtorTarget {
     std::uint32_t guest;
     PPCFunc* host;
@@ -102,8 +117,9 @@ constexpr std::array<ForcedCtorTarget, 9> kForcedCtorTargets{{
     {0x829F9DC8, sub_829F9DC8},
 }};
 
-constexpr std::array<ForcedCtorTarget, 1> kMidFunctionTargets{{
+constexpr std::array<ForcedCtorTarget, 2> kMidFunctionTargets{{
     {0x828076F8, sub_828076F8},
+    {0x821735D0, sub_821735D0},
 }};
 
 }  // namespace

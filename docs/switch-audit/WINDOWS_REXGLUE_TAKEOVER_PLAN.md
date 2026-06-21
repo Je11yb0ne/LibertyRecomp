@@ -634,3 +634,27 @@ Switch should stay paused until the Windows sidecar either:
   generated `sub_82173588 + 0x48`, before `sub_821735F4`.
 - Final verification for this boundary:
   `WINDOWS_REX_MIDFUNC_FINAL_PASS default=0 load=0 launch=8 next=821735D0`.
+
+## 2026-06-21 Update: Bounds-Checked Dispatch Thunk Mapping
+
+- The repeated `0x821735D0` missing-indirect target has been classified and
+  advanced in the Windows `LibertyRecompRex` sidecar.
+- Root cause: generated `__imp__sub_82167748` calls a function pointer from an
+  ops/vtable field. Runtime data points that field to `0x821735D0`, which is
+  not a top-level generated mapping but fits the missing bounds-check and
+  argument-shuffle prologue before generated `sub_821735F4`.
+- Minimal fix: the sidecar now registers `0x821735D0` as a dispatch thunk that
+  checks the table index, returns `0x80070057` on out-of-range input, prepares
+  `r11`, `r9`, and `r5`, and then calls generated `sub_821735F4(ctx, base)`.
+- Fresh red/green evidence:
+  - red was the previous final smoke with repeated `[MISSING-FUNC] ...
+    821735D0`;
+  - green logs `Mid-function target audit: registered 2 sidecar thunk targets`
+    and no longer emits `0x821735D0` or `0x828076F8` in missing-indirect
+    stderr.
+- New launch boundary after this stage: repeated missing-indirect calls to
+  `0x8273A3B0` from `lr=0x82821C5C`. Initial map/source classification places
+  the caller inside generated `__imp__sub_82821BE0` and the target between
+  generated `sub_8273A3A0` and `sub_8273A3C0`.
+- Final verification for this boundary:
+  `WINDOWS_REX_821735D0_FINAL_PASS default=0 load=0 launch=8 next=8273A3B0`.
