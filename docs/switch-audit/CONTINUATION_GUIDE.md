@@ -6161,3 +6161,143 @@ Next stage entry condition:
 - Do not replace broad ReXGlue kernel objects for the missing-indirect debt.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-21 Windows Continuation 100: Forced Ctor Target Sidecar Mapping
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Clear only the proven first batch of missing-indirect constructor targets
+  that were already implemented in the legacy LibertyRecomp dynamic-function
+  path.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- After the `ExThreadObjectType` dummy mapping fix, launch runs no longer hit
+  the old null-thread blocker and now reveal missing-indirect diagnostics.
+- The first missing targets were:
+  `0x829F6F60`, `0x829F6F80`, `0x829F6FA0`, `0x829F6FC0`,
+  `0x829F7020`, `0x829F70E0`, `0x829F7100`, `0x829F71E8`, and
+  `0x829F9DC8`.
+- `LibertyRecomp/kernel/imports.cpp` already has side-effectful legacy
+  implementations for exactly these nine targets and registers them through
+  `LibertyRegisterForcedCtorTargets()` / `RegisterDynamicFunction(...)`.
+- `LibertyRecompRex` does not link that legacy file, so the ReXGlue sidecar
+  never installed those dynamic function mappings.
+- A source search found no current generated or legacy implementation for
+  `0x828076F8`; repeated calls to that address remain a separate function-
+  mapping debt and are not patched in this stage.
+
+Completed in this batch:
+
+- Added `LibertyRecompRex/src/forced_ctor_targets.cpp`.
+- Ported only the nine legacy forced constructor targets from
+  `LibertyRecomp/kernel/imports.cpp` into the sidecar.
+- Registered those targets after `runtime.Setup(...)` with
+  `runtime.processor()->SetFunction(...)`.
+- Added the new sidecar source to `LibertyRecompRex/CMakeLists.txt`.
+- Kept the change sidecar-only. Did not modify generated GTA IV source,
+  ReXGlue prebuilt kernel libraries, Switch packaging, renderer code, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- TDD red command:
+  `LibertyRecompRex.exe "D:\GTA4 NS\Grand Theft Auto IV (USA) (En,Fr,De,Es,It)" --audit-launch-module`
+  with assertions requiring the first nine legacy ctor targets to appear in
+  the missing-indirect stderr log before this sidecar registration.
+- TDD red result:
+  `CTOR_RED_PASS unresolved_ctor_targets=829F6F60,829F6F80,829F6FA0,829F6FC0,829F7020,829F70E0,829F7100,829F71E8,829F9DC8 exit=8`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`.
+- Build result:
+  succeeded and later reported `ninja: no work to do` after relink.
+- Green full-root launch result:
+  `CTOR_GREEN_PASS exit=8 remaining_828076F8=True`.
+- Green evidence:
+  - `Forced ctor target audit: registered 9 sidecar dynamic constructor targets`;
+  - `Patched variable import xboxkrnl:0x1b (ExThreadObjectType) -> 0xd01bbeef`;
+  - no old `thread-ref ... out_thread=0x00000000` diagnostic;
+  - none of the nine `0x829F....` legacy ctor targets appear in the
+    missing-indirect stderr log after registration.
+- Remaining launch evidence:
+  - repeated missing-indirect calls now target `0x828076F8`;
+  - caller return addresses are mainly `lr=0x828055C4` and `lr=0x828055D8`,
+    inside the already documented `__imp__sub_82805578` generated-code region;
+  - the full-root launch exits through the bounded audit path:
+    `elapsed_ms=2006 running=yes process_exit_code=8
+    reason=guest-thread-left-running`.
+- Green log paths:
+  - stdout:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-ctor-green-out-f09b6c10-6dda-4164-b428-1993c90d5a8b.log`;
+  - stderr with remaining `0x828076F8` diagnostics:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-ctor-green-err-f09b6c10-6dda-4164-b428-1993c90d5a8b.log`;
+  - sidecar log:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-ctor-green-side-f09b6c10-6dda-4164-b428-1993c90d5a8b.log`.
+- Final verification command:
+  `git diff --check` was blocked by pre-existing unrelated backup patch
+  whitespace, so the stage used scoped
+  `git diff --check -- LibertyRecompRex/CMakeLists.txt
+  LibertyRecompRex/src/main.cpp LibertyRecompRex/src/forced_ctor_targets.cpp
+  docs/switch-audit/CONTINUATION_GUIDE.md
+  docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`, then
+  `ninja ... LibertyRecompRex LibertyRecomp`, default sidecar run,
+  full-root `--audit-load-xex`, and full-root `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_REX_CTOR_FINAL_PASS default=0 load=0 launch=8
+  remaining_828076F8=yes`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-default-side-d34d57a5-16f4-41d7-9c52-c4a4cac153e1.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-load-side-d34d57a5-16f4-41d7-9c52-c4a4cac153e1.log`;
+  - full-root `--audit-launch-module`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-launch-side-d34d57a5-16f4-41d7-9c52-c4a4cac153e1.log`;
+  - launch stderr with remaining `0x828076F8` diagnostics:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final-launch-err-d34d57a5-16f4-41d7-9c52-c4a4cac153e1.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/CMakeLists.txt`,
+  `LibertyRecompRex/src/main.cpp`,
+  `LibertyRecompRex/src/forced_ctor_targets.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.planning/`,
+  `docs/backups/github-backup-20260615-022231/submodule-diffs/*.patch`,
+  thirdparty submodules,
+  `tools/XenonRecomp`,
+  `tools/XenosRecomp`,
+  `tools/nebula/src`.
+
+Next small tasks:
+
+1. Commit and push this forced-ctor sidecar mapping stage.
+   Completion standard: only the sidecar mapping source/CMake/main hook and
+   audit docs are staged; the commit message states the Windows/ReXGlue forced
+   ctor function-mapping boundary; branch `codex/switch-audit-20260615` is
+   pushed.
+2. Classify repeated `0x828076F8`.
+   Completion standard: identify whether `0x828076F8` is a missing generated
+   function, invalid vtable restoration target, ctor/destructor helper, or a
+   codegen function-boundary omission. Use map/source/log evidence before
+   editing code.
+3. If `0x828076F8` needs a mapping, add a red assertion that proves the current
+   missing-indirect spam and a green assertion that proves the target is mapped
+   without reintroducing the old nine-target debt.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while the current
+   runtime/module/function-mapping blockers are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for `0x828076F8` until source/log
+  evidence proves it is the correct layer.
+- Do not invent a no-op stub for `0x828076F8` without knowing its side effects.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

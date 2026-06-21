@@ -41,6 +41,10 @@
 
 #include "gta4_config.h"
 
+namespace liberty_rex {
+bool InstallForcedCtorTargets(rex::Runtime& runtime);
+}
+
 namespace {
 
 constexpr const char* kDefaultXexVirtualPath = "game:\\default.xex";
@@ -892,6 +896,13 @@ int main(int argc, char** argv) {
         REXLOG_ERROR("ReXGlue runtime setup failed: {:08X}", status);
         rex::ShutdownLogging();
         return 2;
+    }
+
+    if (!liberty_rex::InstallForcedCtorTargets(runtime)) {
+        REXLOG_ERROR("Stopping before XEX preflight because forced ctor target registration failed");
+        runtime.Shutdown();
+        rex::ShutdownLogging();
+        return 7;
     }
 
     if (!install_exthread_object_type_mapping(runtime)) {

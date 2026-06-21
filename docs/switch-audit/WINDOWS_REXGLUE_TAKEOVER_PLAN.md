@@ -577,3 +577,34 @@ Switch should stay paused until the Windows sidecar either:
 - The next Windows task is to reproduce/classify the next launch boundary and
   the missing-indirect target set from source/log evidence before making
   another code change.
+
+## 2026-06-21 Update: Forced Ctor Target Mapping
+
+- The first missing-indirect target batch has been advanced in the Windows
+  `LibertyRecompRex` sidecar.
+- Root cause: `LibertyRecomp/kernel/imports.cpp` already contained nine
+  side-effectful forced constructor targets and registered them through the
+  legacy `RegisterDynamicFunction(...)` path, but the ReXGlue sidecar does not
+  link that legacy file and therefore did not install those mappings.
+- Minimal fix: `LibertyRecompRex/src/forced_ctor_targets.cpp` ports only those
+  nine functions and registers them with
+  `runtime.processor()->SetFunction(...)` after `Runtime::Setup(...)`.
+- Fresh red/green evidence:
+  - red reproduced missing-indirect entries for
+    `0x829F6F60`, `0x829F6F80`, `0x829F6FA0`, `0x829F6FC0`,
+    `0x829F7020`, `0x829F70E0`, `0x829F7100`, `0x829F71E8`, and
+    `0x829F9DC8`;
+  - green logs
+    `Forced ctor target audit: registered 9 sidecar dynamic constructor targets`
+    and none of those nine targets remain in the missing-indirect stderr log.
+- The old `ExThreadObjectType -> 0xd01bbeef` behavior remains green, and the
+  old null-thread blocker did not regress.
+- Remaining launch evidence after this stage is repeated missing-indirect calls
+  to `0x828076F8` from the `__imp__sub_82805578` region, followed by the
+  bounded audit exit with the guest thread still running.
+- Source search found no current generated, legacy, or sidecar implementation
+  for `0x828076F8`. The next Windows task is to classify that address before
+  adding any mapping or stub.
+- Final verification for this boundary:
+  `WINDOWS_REX_CTOR_FINAL_PASS default=0 load=0 launch=8
+  remaining_828076F8=yes`.

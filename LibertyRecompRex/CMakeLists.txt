@@ -50,6 +50,7 @@ unset(_lib)
 add_executable(LibertyRecompRex
     "${REXGLUE_ROOT}/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp"
     "${REXGLUE_ROOT}/src/kernel/xboxkrnl/xboxkrnl_video.cpp"
+    "src/forced_ctor_targets.cpp"
     "src/pre_guest_import_bridges.cpp"
     "src/main.cpp"
 )
