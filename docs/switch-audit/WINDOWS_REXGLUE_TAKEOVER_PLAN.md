@@ -420,6 +420,40 @@ Completion standard:
   before the sidecar CMake/API probe is attempted.
 - Do not claim Windows or Switch playability.
 
+## Renderer Direction
+
+Windows renderer work should be Vulkan-first once the current runtime/module
+startup blockers have been cleared. D3D12 may remain available as a diagnostic
+or fallback backend, but new GTA IV renderer work should avoid D3D12-only
+assumptions unless a narrow stage proves they are required.
+
+The provisional project-side renderer portability baseline is a Vulkan
+1.1-compatible explicit GPU model, not a final commitment that every backend
+must expose Vulkan 1.1 directly and not a desktop-latest Vulkan feature set.
+This baseline should be verified against devkitPro/libnx, deko3d, and ReXGlue
+backend constraints before renderer implementation begins:
+
+- command buffers and explicit submission ownership,
+- descriptor sets/pools or an equivalent fixed descriptor model,
+- pipeline objects and explicit render state translation,
+- explicit resource state transitions/barriers,
+- render-target/depth attachment ownership,
+- host-visible upload/staging paths,
+- shader inputs that can be cross-compiled or reauthored for a Switch backend.
+
+Do not require Vulkan 1.2, Vulkan 1.3, Vulkan 1.4, dynamic rendering, timeline
+semaphores, descriptor indexing, mesh shaders, ray tracing, shader objects, or
+other newer desktop features for the core path unless a later renderer-design
+stage proves the Switch path can support or replace them. ReXGlue's backend can
+use newer Vulkan features opportunistically when present, but the GTA IV
+renderer contract must remain portable to devkitPro/libnx-era Switch
+constraints.
+
+For Switch, assume the current libnx target ultimately needs a deko3d backend or
+another homebrew-compatible explicit renderer. The official Nintendo SDK/NVN
+samples are reference material only unless a separate official-SDK target is
+created later.
+
 ## Next Small Tasks
 
 1. Commit and push the first-launch native-stack diagnostic boundary.

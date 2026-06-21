@@ -64,6 +64,17 @@ Graphics:
   - `NvnTutorial01GettingStartedWithNVN` through `NvnTutorial15HLSL`
 - Use only as conceptual reference for GPU memory ownership, frame pacing, command submission, shader variants, render targets, and pipeline state.
 - Current homebrew implementation should still use deko3d/libnx or another homebrew-compatible backend, not official NVN.
+- Windows-side LibertyRecomp / GTA IV renderer work should be Vulkan-first, but
+  the portable contract should treat Vulkan 1.1 compatibility as a provisional
+  baseline, not a final version commitment. Do not depend on Vulkan 1.2, 1.3,
+  1.4, dynamic rendering, timeline semaphores, descriptor indexing, mesh
+  shaders, ray tracing, or shader objects for the core renderer path unless a
+  later renderer-design stage proves the Switch path can support or replace
+  them.
+- Treat newer Vulkan features in ReXGlue or desktop drivers as optional
+  accelerators only. The Switch migration target is the explicit GPU model
+  shared by Vulkan 1.1, deko3d, and NVN-like APIs, not direct reuse of desktop
+  Vulkan calls on the current devkitPro/libnx target.
 
 Audio:
 

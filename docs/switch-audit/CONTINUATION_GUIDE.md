@@ -12,6 +12,15 @@ Use ReXGlue SDK as the primary runtime/codegen reference for ongoing LibertyReco
 
 Use XenonRecomp as an upstream translation/reference aid, not the main runtime integration target. Do not modify `tools/XenonRecomp` unless a stage explicitly proves a translation-side change is required and records why first.
 
+Renderer direction:
+
+- Windows renderer work is Vulkan-first for future Switch portability. Keep D3D12 available only as a comparison/fallback path unless a stage explicitly proves D3D12 is needed for a blocker.
+- Treat Vulkan 1.1 compatibility as the provisional portability baseline, not as a final backend-version commitment. The project-side renderer contract should avoid features beyond a Vulkan 1.1-style explicit graphics subset until devkitPro/libnx, deko3d, and ReXGlue backend constraints are verified in an implementation stage.
+- The portable subset means command buffers, render passes/framebuffers or equivalent explicit attachments, explicit resource transitions, descriptor sets/pools, pipeline objects, and host-visible upload paths.
+- Do not make Vulkan 1.2, Vulkan 1.3, Vulkan 1.4, dynamic rendering, timeline semaphores, descriptor indexing, mesh shaders, ray tracing, shader objects, or other newer/desktop-only features mandatory for the core renderer path unless a later renderer-design stage proves the Switch path can support or replace them.
+- ReXGlue may use newer Vulkan features internally when available, such as Vulkan 1.3 `VK_KHR_maintenance4`, but LibertyRecomp/GTA IV project-side renderer code should treat them as optional backend accelerators only.
+- The current devkitPro/libnx Switch target should not assume a production Vulkan implementation. The future Switch renderer should map the same explicit renderer model to deko3d/libnx, or to a separately isolated official-NVN target if that is ever created. Official Nintendo SDK/NVN code remains reference-only for the current repo.
+
 Local read-only references:
 
 - ReXGlue SDK: `C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\refs\rexglue-sdk`
