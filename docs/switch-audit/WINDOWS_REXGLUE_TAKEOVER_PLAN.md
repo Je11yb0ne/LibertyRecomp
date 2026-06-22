@@ -687,3 +687,27 @@ Switch should stay paused until the Windows sidecar either:
 - The next implementation boundary should classify the expected ReXGlue VFS
   host layout for `cache:` and `cache1:` before adding any mounts. Do not enter
   renderer work for this blocker.
+
+## 2026-06-22 Update: Cache Device Classification
+
+- The apparent `cache:` / `cache1:` blocker after the `0x8273A3B0` stage has
+  been classified as expected ReXGlue behavior, not as a runtime fix target.
+- Fresh launch evidence showed no new `[MISSING-FUNC]` diagnostics, then
+  repeated `ResolvePath(cache:\) failed - device not found` and
+  `ResolvePath(cache1:\) failed - device not found` for `valid.txt` probes.
+- ReXGlue source and wiki both document that raw
+  `\Device\Harddisk0\Partition0`, `\Cache0`, and `\Cache1` are backed by
+  `NullDevice`, while the `cache:` symbolic link is intentionally not
+  registered because device-not-found is safer for games than actual cache
+  device errors.
+- The sidecar launch log matches that policy: `game:` and `d:` are registered,
+  the raw harddisk/cache devices are present, and direct `cache:` / `cache1:`
+  paths remain unmounted.
+- Do not add `cache:` or `cache1:` mounts unless future evidence proves this
+  direct device-not-found policy is itself blocking progress.
+- Next boundary is launch observation, not VFS implementation: expose a bounded
+  longer first-launch observation window, keep default and `--audit-load-xex`
+  behavior unchanged, and rerun full-root `--audit-launch-module` to identify
+  the next stable guest/runtime/content blocker after the expected cache misses.
+- Classification result:
+  `WINDOWS_REX_CACHE_CLASSIFICATION_PASS cache_symlink=not_registered_by_design cache1_symlink=not_registered_by_design next=extend_launch_observation`.

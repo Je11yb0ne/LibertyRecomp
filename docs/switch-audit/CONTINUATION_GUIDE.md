@@ -6689,3 +6689,93 @@ Next stage entry condition:
 - Do not add cache mounts until the expected host layout is documented.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 104: Cache Device Classification
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Classify the apparent `cache:` / `cache1:` VFS misses from the latest
+  launch smoke before adding any mounts or host cache directories.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The latest `--audit-launch-module` smoke after the `0x8273A3B0` stage reached
+  guest thread execution and logged:
+  - `ResolvePath(cache:\) failed - device not found`;
+  - `[NtCreateFile] FAILED: path='cache:\valid.txt' -> 0xc000000f`;
+  - `ResolvePath(cache1:\) failed - device not found`;
+  - `[NtCreateFile] FAILED: path='cache1:\valid.txt' -> 0xc000000f`.
+- Current ReXGlue source in `glue/rexglue-sdk-main/src/system/runtime.cpp`
+  registers a `NullDevice` for raw `\Device\Harddisk0\Partition0`,
+  `\Cache0`, and `\Cache1` requests after the real `Partition1` host device.
+- The same source explicitly says not to register a `cache:` device because
+  games handle "device not found" more safely than device errors such as
+  `NAME_COLLISION`.
+- The local ReXGlue wiki `Virtual-File-System.md` records the same policy:
+  `cache:` symbolic links are intentionally not registered.
+- The launch log confirms this runtime shape:
+  - `Registered symbolic links: game:, d:`;
+  - `Registered NullDevice for \Device\Harddisk0\{Partition0,Cache0,Cache1}`;
+  - later direct `\Device\Harddisk0` probes hit `NullDevice::ResolvePath()`;
+  - direct `cache:` / `cache1:` paths remain unmounted.
+
+Completed in this batch:
+
+- Classified the `cache:` / `cache1:` `valid.txt` misses as expected ReXGlue
+  behavior, not as the next implementation blocker.
+- Did not add `cache:` or `cache1:` symbolic links.
+- Did not create host cache directories or modify generated GTA IV source,
+  ReXGlue prebuilt kernel libraries, Switch packaging, renderer code, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- Re-read `glue/rexglue-sdk-main/src/system/runtime.cpp`,
+  `glue/rexglue-sdk-main/src/filesystem/virtual_file_system.cpp`,
+  `glue/rexglue-sdk-main/src/filesystem/devices/null_device.cpp`, and the local
+  ReXGlue `Virtual-File-System.md`.
+- Re-read the fresh launch log:
+  `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final4d-launch-side-941d2daf-673d-4fe4-b1e5-381c25ebf672.log`.
+- Classification result:
+  `WINDOWS_REX_CACHE_CLASSIFICATION_PASS cache_symlink=not_registered_by_design cache1_symlink=not_registered_by_design next=extend_launch_observation`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this docs-only cache classification stage.
+   Completion standard: only the two audit docs are staged; the commit message
+   states the Windows/ReXGlue cache-device classification boundary; branch
+   `codex/switch-audit-20260615` is pushed.
+2. Add or expose a longer first-launch observation boundary.
+   Completion standard: default and `--audit-load-xex` behavior remain
+   unchanged; the launch audit can observe longer than the current fixed
+   2-second window without hanging the harness indefinitely.
+3. Rerun full-root `--audit-launch-module` with the longer observation.
+   Completion standard: identify the next stable guest/runtime/content blocker
+   after the expected cache misses, or record that the thread remains running
+   without a new hard failure in the chosen window.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/module/launch-observation boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not add `cache:` / `cache1:` mounts unless a future log proves the
+  direct device-not-found policy is itself the blocker.
+- Do not modify generated GTA IV source for the launch-observation boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
