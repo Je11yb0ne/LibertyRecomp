@@ -7111,3 +7111,117 @@ Next stage entry condition:
   boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 108: Long Observation And XeCryptSha Bridge
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Classify the next stable runtime state after the breakpoint fix and replace
+  only the actually called empty crypt bridge that has a straightforward
+  ReXGlue-equivalent implementation.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- Fresh no-op build after commit:
+  `ninja -C ...\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`
+  reported `ninja: no work to do`.
+- A fresh full-root `--audit-launch-module --audit-observe-ms 60000` run
+  returned through the bounded audit path:
+  `WINDOWS_REX_LONG_OBSERVE exit=8 hex=00000008 missing_func=0 raw_exception=0 rex_exception=0 audio_config_misses=30 cache_misses=4 xfile_sector_stubs=36 crypt_lines=7`.
+- The 60-second run launched additional guest threads and ended with:
+  `elapsed_ms=60010 running=yes process_exit_code=8 reason=guest-thread-left-running`.
+- No new raw Windows exception, ReXGlue structured exception, or
+  `[MISSING-FUNC]` line appeared during the longer observation.
+- Actual sidecar crypt calls were visible:
+  `__imp__XeCryptSha STUB` and `__imp__XeKeysConsolePrivateKeySign STUB`.
+- ReXGlue source contains a real `XeCryptSha_entry(...)` implementation in
+  `xboxkrnl_crypt.cpp`, but the active vendored SDK tree lacks the matching
+  `thirdparty/crypto` and `thirdparty/aes_128` files needed to compile that
+  whole source file directly. The refs tree has those files, but this stage did
+  not copy reference thirdparty files into the active repo.
+
+Completed in this batch:
+
+- Kept the full `xboxkrnl_crypt.cpp` overlay out of the active build because it
+  would require importing missing SDK thirdparty crypto sources.
+- Replaced only the sidecar `__imp__XeCryptSha` empty stub with a Windows-only
+  BCrypt SHA1 bridge in `LibertyRecompRex/src/pre_guest_import_bridges.cpp`.
+- The bridge hashes up to three input buffers and copies the SHA1 digest to the
+  guest output buffer, matching the shape of the ReXGlue source implementation.
+- Kept `XeKeysConsoleSignatureVerification` and
+  `XeKeysConsolePrivateKeySign` as explicit sidecar stubs for the next narrow
+  boundary.
+- Did not modify generated GTA IV source, ReXGlue prebuilt libraries,
+  Switch packaging, renderer code, cache mounts, encrypted RPF handling, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- Static red check before editing:
+  `EXPECTED_RED_CRYPT_SIDE_STUB cmake_missing=xboxkrnl_crypt.cpp bridge_stub=__imp__XeCryptSha`.
+- Intermediate full-source overlay failed for documented reasons:
+  first `VCPKG_ROOT` was missing during CMake regenerate; after setting
+  `VCPKG_ROOT`, compile failed because the active vendored SDK tree lacks
+  `crypto/TinySHA1.hpp`. This path was abandoned without copying thirdparty
+  files.
+- Static green check for the sidecar bridge:
+  `STATIC_CRYPT_SIDECAR_SHA_GREEN`.
+- Build command:
+  `$env:VCPKG_ROOT='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\vcpkg'; ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- Build result:
+  exit `0`; the existing applocal helper still warns that dumpbin/objdump is
+  unavailable.
+- Final full-root smoke result:
+  `WINDOWS_REX_CRYPT_SHA_FINAL_PASS default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 raw_exception=0 xecrypt_stub=0 xekeys_stub=2 xecrypt_errors=0 xfile_sector_stubs=36`.
+- The launch run still exits through the bounded audit path:
+  `elapsed_ms=6008 running=yes process_exit_code=8 reason=guest-thread-left-running`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-crypt-final-default-side-b51f7763-8f08-4266-b8a8-286489dbc781.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-crypt-final-load-side-b51f7763-8f08-4266-b8a8-286489dbc781.log`;
+  - full-root `--audit-launch-module --audit-observe-ms 6000`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-crypt-final-launch6000-side-b51f7763-8f08-4266-b8a8-286489dbc781.log`;
+  - launch stderr boot trace:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-crypt-final-launch6000-err-b51f7763-8f08-4266-b8a8-286489dbc781.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/pre_guest_import_bridges.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `XeCryptSha` sidecar bridge stage.
+   Completion standard: only the sidecar bridge source and two audit docs are
+   staged; branch `codex/switch-audit-20260615` is pushed.
+2. Replace the actual `XeKeysConsolePrivateKeySign` sidecar empty stub with a
+   narrow return-value bridge matching ReXGlue's current source behavior.
+   Completion standard: fresh smoke shows `__imp__XeKeysConsolePrivateKeySign
+   STUB` no longer appears, while the launch still exits through a bounded
+   diagnostic path or exposes a new blocker.
+3. Keep `XFileSectorInformation`, `IoDismountVolumeByFileHandle`, cache misses,
+   and audio-config content misses classified as runtime/content follow-up
+   boundaries unless a fresh log proves one is the active hard blocker.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/kernel-export boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not copy ReXGlue reference thirdparty crypto files into the active repo
+  without a dedicated SDK-vendoring decision.
+- Do not modify generated GTA IV source for the next crypt/export boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

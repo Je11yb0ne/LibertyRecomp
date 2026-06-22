@@ -794,3 +794,29 @@ Switch should stay paused until the Windows sidecar either:
   coverage, and repeated `Stub XFileSectorInformation!` lines. Do not enter
   renderer work or encrypted RPF fallback work for this blocker without a
   narrower proof.
+
+## 2026-06-22 Update: Long Observation And XeCryptSha Bridge
+
+- A fresh 60-second full-root launch observation after the breakpoint fix did
+  not reveal a new exception or missing generated function:
+  `WINDOWS_REX_LONG_OBSERVE exit=8 hex=00000008 missing_func=0 raw_exception=0 rex_exception=0 audio_config_misses=30 cache_misses=4 xfile_sector_stubs=36 crypt_lines=7`.
+- The guest created additional threads and remained running until the bounded
+  audit exit, so the current state is a runtime/content/export audit boundary,
+  not a crash boundary.
+- Actual empty sidecar crypt stubs were called:
+  `__imp__XeCryptSha STUB` and `__imp__XeKeysConsolePrivateKeySign STUB`.
+- Directly compiling ReXGlue `xboxkrnl_crypt.cpp` into the sidecar was tested
+  and rejected for this stage because the active vendored SDK tree lacks the
+  `thirdparty/crypto` and `thirdparty/aes_128` files that the source includes.
+  The refs tree contains them, but copying reference thirdparty files into the
+  active repo needs a separate SDK-vendoring decision.
+- Minimal fix: `LibertyRecompRex/src/pre_guest_import_bridges.cpp` now provides
+  a Windows-only BCrypt SHA1 bridge for `__imp__XeCryptSha`, matching the
+  ReXGlue source behavior for the actually observed call shape.
+- Fresh verification:
+  `WINDOWS_REX_CRYPT_SHA_FINAL_PASS default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 raw_exception=0 xecrypt_stub=0 xekeys_stub=2 xecrypt_errors=0 xfile_sector_stubs=36`.
+- The next smallest export boundary is
+  `XeKeysConsolePrivateKeySign`: replace the empty sidecar stub with a narrow
+  return-value bridge matching ReXGlue's current source behavior, then rerun the
+  same smoke. Do not start renderer work or encrypted RPF fallback work from
+  this evidence alone.
