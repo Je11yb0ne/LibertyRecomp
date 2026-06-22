@@ -7225,3 +7225,104 @@ Next stage entry condition:
 - Do not modify generated GTA IV source for the next crypt/export boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 109: XeKeys Success Bridge
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Replace the actually called `XeKeysConsolePrivateKeySign` empty sidecar stub
+  with a narrow return-value bridge matching current ReXGlue source behavior.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The previous crypt stage ended with
+  `WINDOWS_REX_CRYPT_SHA_FINAL_PASS ... xecrypt_stub=0 xekeys_stub=2`.
+- ReXGlue source in `xboxkrnl_crypt.cpp` currently implements both
+  `XeKeysConsolePrivateKeySign_entry(...)` and
+  `XeKeysConsoleSignatureVerification_entry(...)` as success-return stubs.
+- Static red check before editing:
+  `EXPECTED_RED_XEKEYS_PRIVATE_SIGN_STUB`.
+
+Completed in this batch:
+
+- Added sidecar success-return bridges for
+  `__imp__XeKeysConsolePrivateKeySign` and
+  `__imp__XeKeysConsoleSignatureVerification`.
+- Removed the remaining empty sidecar stubs for those exports.
+- Updated `LibertyRecompRex` export-coverage labels so the crypt exports no
+  longer report `bridge=sidecar_registered_stub` after they have real sidecar
+  behavior:
+  - `XeCryptSha` now reports `bridge=sidecar_sha1_bridge`;
+  - `XeKeysConsolePrivateKeySign` and
+    `XeKeysConsoleSignatureVerification` now report
+    `bridge=sidecar_success_bridge`.
+- Did not modify generated GTA IV source, ReXGlue prebuilt libraries,
+  Switch packaging, renderer code, cache mounts, encrypted RPF handling, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- Static green checks:
+  `STATIC_XEKEYS_BRIDGE_GREEN` and
+  `STATIC_EXPORT_COVERAGE_LABELS_GREEN`.
+- `git diff --check -- LibertyRecompRex/src/pre_guest_import_bridges.cpp LibertyRecompRex/src/main.cpp`
+  exits `0`; only the existing Windows LF/CRLF warnings are reported.
+- Build command:
+  `$env:VCPKG_ROOT='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\vcpkg'; ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- Build result:
+  exit `0`; the existing applocal helper still warns that dumpbin/objdump is
+  unavailable.
+- Final full-root smoke result:
+  `WINDOWS_REX_XEKEYS_FINAL2_PASS default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 raw_exception=0 xecrypt_stub=0 xekeys_stub=0 xesig_stub=0 bridge_errors=0 xfile_sector_stubs=36`.
+- The launch run still exits through the bounded audit path:
+  `elapsed_ms=6014 running=yes process_exit_code=8 reason=guest-thread-left-running`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-default-side-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-load-side-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`;
+  - full-root `--audit-launch-module --audit-observe-ms 6000`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-launch6000-side-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`;
+  - launch stderr boot trace:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-launch6000-err-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/pre_guest_import_bridges.cpp`,
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `XeKeys` success-bridge stage.
+   Completion standard: only the two sidecar source files and two audit docs
+   are staged; branch `codex/switch-audit-20260615` is pushed.
+2. Classify the remaining `XFileSectorInformation` / `IoDismountVolumeByFileHandle`
+   runtime behavior.
+   Completion standard: prove from ReXGlue source/log evidence whether the
+   current 4-byte path-hash sector response and dismount-success stub are
+   acceptable for now or whether one is the next behavior gap.
+3. Keep cache misses and audio-config content misses as documented
+   runtime/content follow-up boundaries unless a fresh log proves one is the
+   active hard blocker.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/kernel-export boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for the next file-info/export
+  boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

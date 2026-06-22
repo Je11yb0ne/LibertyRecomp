@@ -820,3 +820,20 @@ Switch should stay paused until the Windows sidecar either:
   return-value bridge matching ReXGlue's current source behavior, then rerun the
   same smoke. Do not start renderer work or encrypted RPF fallback work from
   this evidence alone.
+
+## 2026-06-22 Update: XeKeys Success Bridge
+
+- The remaining actually called sidecar crypt stub has been cleared.
+- `LibertyRecompRex/src/pre_guest_import_bridges.cpp` now maps
+  `__imp__XeKeysConsolePrivateKeySign` and
+  `__imp__XeKeysConsoleSignatureVerification` to narrow success-return bridges,
+  matching current ReXGlue source behavior.
+- Export-coverage diagnostics now distinguish the crypt bridges:
+  `XeCryptSha` reports `bridge=sidecar_sha1_bridge`, while the two
+  `XeKeys...` exports report `bridge=sidecar_success_bridge`.
+- Fresh verification:
+  `WINDOWS_REX_XEKEYS_FINAL2_PASS default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 raw_exception=0 xecrypt_stub=0 xekeys_stub=0 xesig_stub=0 bridge_errors=0 xfile_sector_stubs=36`.
+- The sidecar still exits through the bounded running-thread audit path. The
+  next useful runtime boundary is no longer crypt; classify
+  `XFileSectorInformation`, `IoDismountVolumeByFileHandle`, expected cache
+  misses, and the missing extracted audio config from source/log evidence.

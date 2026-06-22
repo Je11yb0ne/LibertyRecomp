@@ -99,6 +99,22 @@ void XeCryptSha_sidecar(ppc_pvoid_t input_1, ppc_u32_t input_1_size, ppc_pvoid_t
     }
 }
 
+ppc_u32_result_t XeKeysConsolePrivateKeySign_sidecar(ppc_pvoid_t hash, ppc_pvoid_t signature) {
+    (void)hash;
+    (void)signature;
+    return 0;
+}
+
+ppc_u32_result_t XeKeysConsoleSignatureVerification_sidecar(ppc_pvoid_t hash,
+                                                            ppc_pvoid_t signature,
+                                                            ppc_pvoid_t pubkey) {
+    (void)hash;
+    (void)signature;
+    (void)pubkey;
+    return 0;
+}
+
 XBOXKRNL_EXPORT(__imp__XeCryptSha, XeCryptSha_sidecar)
-XBOXKRNL_EXPORT_STUB(__imp__XeKeysConsoleSignatureVerification)
-XBOXKRNL_EXPORT_STUB(__imp__XeKeysConsolePrivateKeySign)
+XBOXKRNL_EXPORT(__imp__XeKeysConsoleSignatureVerification,
+                XeKeysConsoleSignatureVerification_sidecar)
+XBOXKRNL_EXPORT(__imp__XeKeysConsolePrivateKeySign, XeKeysConsolePrivateKeySign_sidecar)
