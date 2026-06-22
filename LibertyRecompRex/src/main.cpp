@@ -49,10 +49,13 @@ namespace {
 
 constexpr const char* kDefaultXexVirtualPath = "game:\\default.xex";
 constexpr std::chrono::milliseconds kFirstLaunchObservationWindow{2000};
+constexpr std::chrono::milliseconds kMinFirstLaunchObservationWindow{100};
+constexpr std::chrono::milliseconds kMaxFirstLaunchObservationWindow{60000};
 constexpr int kFirstLaunchTimeoutExitCode = 8;
 
 struct CommandLineOptions {
     std::filesystem::path game_root;
+    std::chrono::milliseconds first_launch_observation_window = kFirstLaunchObservationWindow;
     bool audit_load_xex = false;
     bool audit_launch_module = false;
 };
@@ -423,6 +426,27 @@ std::filesystem::path executable_folder(const char* argv0) {
     return path.parent_path();
 }
 
+bool set_observation_window_from_argument(CommandLineOptions& options, const std::string& value) {
+    if (value.empty() || value[0] == '-' || value[0] == '+') {
+        return false;
+    }
+
+    char* end = nullptr;
+    const auto parsed_ms = std::strtoul(value.c_str(), &end, 10);
+    if (end == value.c_str() || end == nullptr || *end != '\0') {
+        return false;
+    }
+
+    auto clamped_window = std::chrono::milliseconds(parsed_ms);
+    if (clamped_window < kMinFirstLaunchObservationWindow) {
+        clamped_window = kMinFirstLaunchObservationWindow;
+    } else if (clamped_window > kMaxFirstLaunchObservationWindow) {
+        clamped_window = kMaxFirstLaunchObservationWindow;
+    }
+    options.first_launch_observation_window = clamped_window;
+    return true;
+}
+
 CommandLineOptions parse_command_line(int argc, char** argv,
                                       const std::filesystem::path& exe_dir) {
     CommandLineOptions options;
@@ -431,6 +455,7 @@ CommandLineOptions parse_command_line(int argc, char** argv,
     bool game_root_set = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i] != nullptr ? argv[i] : "";
+        constexpr const char* kObservePrefix = "--audit-observe-ms=";
         if (arg == "--audit-load-xex") {
             options.audit_load_xex = true;
             continue;
@@ -438,6 +463,25 @@ CommandLineOptions parse_command_line(int argc, char** argv,
         if (arg == "--audit-launch-module") {
             options.audit_launch_module = true;
             options.audit_load_xex = true;
+            continue;
+        }
+        if (arg == "--audit-observe-ms") {
+            if (i + 1 < argc &&
+                set_observation_window_from_argument(
+                    options, argv[i + 1] != nullptr ? std::string(argv[i + 1]) : std::string{})) {
+                ++i;
+            } else {
+                std::cerr << "Invalid --audit-observe-ms value; using default "
+                          << options.first_launch_observation_window.count() << " ms\n";
+            }
+            continue;
+        }
+        if (arg.rfind(kObservePrefix, 0) == 0) {
+            if (!set_observation_window_from_argument(
+                    options, arg.substr(std::strlen(kObservePrefix)))) {
+                std::cerr << "Invalid --audit-observe-ms value; using default "
+                          << options.first_launch_observation_window.count() << " ms\n";
+            }
             continue;
         }
 
@@ -761,12 +805,14 @@ void log_launch_thread_snapshot(std::string_view label, rex::system::XThread& th
         ctx->r13.u32);
 }
 
-bool run_first_launch_attempt(rex::Runtime& runtime) {
+bool run_first_launch_attempt(rex::Runtime& runtime,
+                              const std::chrono::milliseconds observation_window) {
     if (!log_first_launch_gate(runtime)) {
         return false;
     }
 
-    REXLOG_WARN("First-launch audit: calling Runtime::LaunchModule");
+    REXLOG_WARN("First-launch audit: calling Runtime::LaunchModule observe_ms={}",
+                observation_window.count());
     flush_rex_loggers();
 
     auto main_thread = runtime.LaunchModule();
@@ -780,7 +826,7 @@ bool run_first_launch_attempt(rex::Runtime& runtime) {
     flush_rex_loggers();
 
     const auto observation_start = std::chrono::steady_clock::now();
-    std::this_thread::sleep_for(kFirstLaunchObservationWindow);
+    std::this_thread::sleep_for(observation_window);
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - observation_start)
                                 .count();
@@ -877,6 +923,7 @@ int main(int argc, char** argv) {
     REXLOG_INFO("  Log path:  {}", log_path_string);
     REXLOG_INFO("  Audit LoadXexImage: {}", options.audit_load_xex ? "yes" : "no");
     REXLOG_INFO("  Audit LaunchModule: {}", options.audit_launch_module ? "requested-gated" : "no");
+    REXLOG_INFO("  Audit observe_ms: {}", options.first_launch_observation_window.count());
 
     rex::RuntimeConfig config;
     config.tool_mode = true;
@@ -938,7 +985,7 @@ int main(int argc, char** argv) {
         log_export_coverage(runtime);
         if (options.audit_launch_module) {
             first_launch_failure_capture.Install();
-            if (!run_first_launch_attempt(runtime)) {
+            if (!run_first_launch_attempt(runtime, options.first_launch_observation_window)) {
                 runtime.Shutdown();
                 rex::ShutdownLogging();
                 return 7;

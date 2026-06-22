@@ -711,3 +711,33 @@ Switch should stay paused until the Windows sidecar either:
   the next stable guest/runtime/content blocker after the expected cache misses.
 - Classification result:
   `WINDOWS_REX_CACHE_CLASSIFICATION_PASS cache_symlink=not_registered_by_design cache1_symlink=not_registered_by_design next=extend_launch_observation`.
+
+## 2026-06-22 Update: Bounded Launch Observation Window
+
+- The Windows `LibertyRecompRex` sidecar now exposes an opt-in
+  `--audit-observe-ms` launch-observation window while keeping the default
+  first-launch window at `2000 ms`.
+- The parser accepts both `--audit-observe-ms <ms>` and
+  `--audit-observe-ms=<ms>`, clamps values to `100..60000 ms`, and logs the
+  selected value at startup and `Runtime::LaunchModule` entry.
+- Fresh build verification:
+  `ninja -C ...\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`
+  exited `0`; the known applocal dumpbin/objdump warning remains.
+- Fresh full-root smoke result:
+  `WINDOWS_REX_OBSERVE_MS_FINAL_PASS default=0 load=0 launch=8 launch_hex=00000008 observe_ms=6000 missing_func=0`.
+- The 6000 ms launch run proved the sidecar can observe beyond the previous
+  fixed 2-second boundary without adding cache mounts or generated-code edits.
+- The run emitted no `[MISSING-FUNC]` diagnostics. It continued through
+  expected `cache:` / `cache1:` misses, repeated missing
+  `game:\xbox360\audio\config` content probes, and known
+  `XeCryptSha`, `XeKeysConsolePrivateKeySign`, and
+  `IoDismountVolumeByFileHandle(...)` stub diagnostics, then exited through the
+  bounded audit path with the guest thread still running. The final launch log
+  recorded `30` `game:\xbox360\audio\config` misses, `4` cache `valid.txt`
+  misses, and `elapsed_ms=11228`.
+- Next implementation boundary is content classification for
+  `game:\xbox360\audio\config`: prove whether the extracted layout is missing
+  required files, an RPF-backed fallback is expected, or the path mapping is
+  wrong before adding any fallback.
+- Do not enter renderer work, generated-code edits, or cache symlink mounting
+  for this stage.

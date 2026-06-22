@@ -6779,3 +6779,113 @@ Next stage entry condition:
 - Do not modify generated GTA IV source for the launch-observation boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 105: Bounded Launch Observation Window
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Extend first-launch observation in a bounded, opt-in way so runtime smoke can
+  see past the old fixed 2-second audit exit.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The previous full-root `--audit-launch-module` runs were bounded by the fixed
+  `kFirstLaunchObservationWindow{2000}` in `LibertyRecompRex/src/main.cpp`.
+- After cache-device classification, the next useful boundary was not a VFS
+  mount change. It was exposing a longer observation window without letting the
+  harness hang indefinitely.
+- A red static check before editing confirmed there was no
+  `--audit-observe-ms` command-line flag.
+
+Completed in this batch:
+
+- Added `--audit-observe-ms <ms>` and `--audit-observe-ms=<ms>` parsing to
+  `LibertyRecompRex`.
+- Kept default behavior at `2000 ms`.
+- Clamped custom observation windows to `100..60000 ms`.
+- Logged the selected observation window at startup and at
+  `Runtime::LaunchModule` entry.
+- Passed the selected window into `run_first_launch_attempt(...)`.
+- Did not modify generated GTA IV source, ReXGlue prebuilt kernel libraries,
+  Switch packaging, renderer code, or thirdparty submodules.
+
+Fresh verification:
+
+- Static red check before editing:
+  `EXPECTED_RED_MISSING_AUDIT_OBSERVE_MS`.
+- Static green check after editing:
+  `STATIC_OBSERVE_MS_GREEN`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- Build result:
+  exit `0`; the existing applocal helper still warns that dumpbin/objdump is
+  unavailable.
+- Smoke harness:
+  clean `Start-Process` capture so native stderr boot traces stay as log data
+  instead of PowerShell `NativeCommandError` records.
+- Full-root smoke result:
+  `WINDOWS_REX_OBSERVE_MS_FINAL_PASS default=0 load=0 launch=8 launch_hex=00000008 observe_ms=6000 missing_func=0`.
+- Full-root launch evidence:
+  - startup logged `Audit LaunchModule: requested-gated`;
+  - startup logged `Audit observe_ms: 6000`;
+  - launch logged `First-launch audit: calling Runtime::LaunchModule observe_ms=6000`;
+  - no `[MISSING-FUNC]` diagnostics were emitted;
+  - expected `cache:` / `cache1:` device-not-found probes remained;
+  - repeated missing content under `game:\xbox360\audio\config` was observed;
+  - `__imp__XeCryptSha`, `__imp__XeKeysConsolePrivateKeySign`, and
+    `IoDismountVolumeByFileHandle(...)` stub diagnostics were observed;
+  - post-observation logged
+    `elapsed_ms=11228 running=yes process_exit_code=8 reason=guest-thread-left-running`;
+  - the launch sidecar log contained `30` `game:\xbox360\audio\config`
+    misses and `4` cache `valid.txt` misses.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-observe-final-default-side-c5d5dda4-5014-4107-8d1c-b004f5e681a4.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-observe-final-load-side-c5d5dda4-5014-4107-8d1c-b004f5e681a4.log`;
+  - full-root `--audit-launch-module --audit-observe-ms 6000`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-observe-final-launch6000-side-c5d5dda4-5014-4107-8d1c-b004f5e681a4.log`;
+  - launch stderr boot trace:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-observe-final-launch6000-err-c5d5dda4-5014-4107-8d1c-b004f5e681a4.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this bounded launch-observation stage.
+   Completion standard: only the sidecar main source and two audit docs are
+   staged; branch `codex/switch-audit-20260615` is pushed.
+2. Classify the `game:\xbox360\audio\config` content misses.
+   Completion standard: prove whether the user's extracted layout is missing
+   required audio config files, whether an RPF-backed VFS fallback is expected,
+   or whether this is a path-layout bug before adding any fallback.
+3. Classify the observed crypt/dismount stubs only after content-path evidence.
+   Completion standard: do not replace `XeCryptSha`,
+   `XeKeysConsolePrivateKeySign`, or `IoDismountVolumeByFileHandle` until a
+   log proves one of them is the active blocker.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/launch-observation boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not add `cache:` / `cache1:` mounts unless future evidence contradicts
+  the ReXGlue cache policy.
+- Do not modify generated GTA IV source for the content-classification
+  boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
