@@ -837,3 +837,23 @@ Switch should stay paused until the Windows sidecar either:
   next useful runtime boundary is no longer crypt; classify
   `XFileSectorInformation`, `IoDismountVolumeByFileHandle`, expected cache
   misses, and the missing extracted audio config from source/log evidence.
+
+## 2026-06-22 Update: File Info And Dismount Classification
+
+- The remaining file-info/dismount messages after the `XeKeys` bridge have
+  been classified from source and log evidence.
+- ReXGlue `XFileSectorInformation` currently returns a 4-byte path-hash value
+  and a successful output length; it logs `Stub XFileSectorInformation!`, but
+  it is not an unimplemented-error path in the current run.
+- ReXGlue `IoDismountVolumeByFileHandle(...)` currently logs a warning and
+  returns `X_STATUS_SUCCESS`.
+- Latest launch evidence after the crypt/export bridges still shows bounded
+  running-thread exit with no `[MISSING-FUNC]`, no raw Windows exception, and
+  no ReXGlue structured exception.
+- Classification result:
+  `WINDOWS_REX_FILEINFO_DISMOUNT_CLASSIFICATION_PASS xfile_sector=hash_success_stub iodismount=success_stub hard_blocker=no next=content_or_longer_runtime_observation`.
+- Next runtime work should either perform a longer observation after the cleared
+  crypt bridges or isolate the missing extracted
+  `game:\xbox360\audio\config` content/RPF issue outside runtime. Do not change
+  cache mounts, encrypted RPF handling, or file-info return structures without a
+  fresh blocker proving that need.

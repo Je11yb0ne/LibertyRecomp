@@ -7326,3 +7326,90 @@ Next stage entry condition:
   boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 110: File Info And Dismount Classification
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Classify the remaining `XFileSectorInformation` and
+  `IoDismountVolumeByFileHandle` runtime messages before changing more kernel
+  behavior.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The latest verified launch after the `XeKeys` bridge reported:
+  `WINDOWS_REX_XEKEYS_FINAL2_PASS default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 raw_exception=0 xecrypt_stub=0 xekeys_stub=0 xesig_stub=0 bridge_errors=0 xfile_sector_stubs=36`.
+- ReXGlue `xboxkrnl_io_info.cpp` handles `XFileSectorInformation` by writing a
+  4-byte hash of the current file path, setting `out_length=sizeof(uint32_t)`,
+  and continuing without an error status.
+- ReXGlue `xboxkrnl_io.cpp` handles `IoDismountVolumeByFileHandle(...)` by
+  logging a warning and returning `X_STATUS_SUCCESS`.
+- The launch log contains `36` `Stub XFileSectorInformation!` lines and `4`
+  `IoDismountVolumeByFileHandle(...) - stub` lines, followed by the bounded
+  audit exit with the guest thread still running.
+- The launch stderr contains no `[MISSING-FUNC]` lines, and the sidecar log
+  contains no raw Windows or ReXGlue structured exception observations.
+
+Completed in this batch:
+
+- Classified `XFileSectorInformation` and `IoDismountVolumeByFileHandle` as
+  visible runtime fidelity debt, not the current hard blocker.
+- Made no code changes for this classification.
+- Kept cache misses and missing extracted audio config as the current visible
+  content/runtime follow-up boundaries.
+- Did not modify generated GTA IV source, ReXGlue prebuilt libraries,
+  Switch packaging, renderer code, cache mounts, encrypted RPF handling, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- Re-read current ReXGlue source:
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp` and
+  `glue/rexglue-sdk-main/src/kernel/xboxkrnl/xboxkrnl_io.cpp`.
+- Re-read latest launch logs:
+  - sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-launch6000-side-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`;
+  - stderr:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-xekeys-final-launch6000-err-ce75b348-a2e3-4d52-b8eb-15ebaa9779d3.log`.
+- No-op build command:
+  `$env:VCPKG_ROOT='C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\vcpkg'; ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- No-op build result:
+  exit `0`, `ninja: no work to do`.
+- Classification result:
+  `WINDOWS_REX_FILEINFO_DISMOUNT_CLASSIFICATION_PASS xfile_sector=hash_success_stub iodismount=success_stub hard_blocker=no next=content_or_longer_runtime_observation`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this docs-only file-info/dismount classification stage.
+   Completion standard: only the two audit docs are staged; branch
+   `codex/switch-audit-20260615` is pushed.
+2. Choose the next runtime/content boundary:
+   Completion standard: either continue longer observation after the now-cleared
+   crypt stubs, or isolate the missing extracted
+   `game:\xbox360\audio\config` content/RPF issue outside runtime.
+3. Do not change cache mounts, encrypted RPF handling, or file-info return
+   structures until fresh evidence proves one is the active blocker.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/kernel-export boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for the next runtime/content boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.
