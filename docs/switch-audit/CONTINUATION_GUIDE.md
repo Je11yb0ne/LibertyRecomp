@@ -6889,3 +6889,109 @@ Next stage entry condition:
   boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 106: Audio Content Preflight Diagnostic
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Make the repeated `game:\xbox360\audio\config` runtime misses visible before
+  guest launch as a content/VFS classification diagnostic.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- The final `--audit-launch-module --audit-observe-ms 6000` smoke from the
+  bounded-observation stage emitted `30` misses under
+  `game:\xbox360\audio\config` while emitting no `[MISSING-FUNC]` diagnostics.
+- The user's real game root contains:
+  - `audio.rpf` with `RPF2` magic, `tocSize=0x800`, `entryCount=12`, and
+    `encrypted=0xFFFFFFFF`;
+  - extracted `xbox360\audio\sfx`;
+  - no `xbox360\audio\config`;
+  - no top-level `audio\config`;
+  - no `aes_key.bin` under `D:\GTA4 NS`, the repo, or the old Codex workspace.
+- Existing legacy `LibertyRecomp` code has RPF loader/extractor code, but the
+  active `LibertyRecompRex` sidecar uses ReXGlue host-path VFS and does not
+  transparently read encrypted RPF entries.
+
+Completed in this batch:
+
+- Added a non-blocking `LibertyRecompRex` content preflight diagnostic.
+- The preflight logs:
+  - `xbox360_audio_config`;
+  - `top_level_audio_config`;
+  - `xbox360_audio_root`;
+  - `xbox360_audio_sfx`;
+  - `source_audio_rpf`;
+  - `game_aes_key`;
+  - `parent_aes_key`.
+- When both extracted audio config roots are absent, it logs:
+  `Audio content preflight: missing extracted audio config; source_audio_rpf=yes game_aes_key=no parent_aes_key=no policy=host-path-vfs-does-not-read-rpf`.
+- The diagnostic is read-only and does not block default, `--audit-load-xex`,
+  or `--audit-launch-module`.
+- Did not add RPF extraction, cache mounts, generated-code edits, renderer
+  code, Switch packaging changes, or thirdparty changes.
+
+Fresh verification:
+
+- Static red check before editing:
+  `EXPECTED_RED_MISSING_REX_CONTENT_PREFLIGHT`.
+- Static green check after editing:
+  `STATIC_AUDIO_CONTENT_PREFLIGHT_GREEN`.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- Build result:
+  exit `0`; the existing applocal helper still warns that dumpbin/objdump is
+  unavailable.
+- Full-root smoke result:
+  `WINDOWS_REX_AUDIO_CONTENT_PREFLIGHT_PASS default=0 load=0 launch=8 source_audio_rpf=yes game_aes_key=no parent_aes_key=no missing_func=0`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-content-default-side-a6a93b60-f1ff-4306-a413-c8571eccdebc.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-content-load-side-a6a93b60-f1ff-4306-a413-c8571eccdebc.log`;
+  - full-root `--audit-launch-module --audit-observe-ms 6000`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-content-launch6000-side-a6a93b60-f1ff-4306-a413-c8571eccdebc.log`;
+  - launch stderr boot trace:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-content-launch6000-err-a6a93b60-f1ff-4306-a413-c8571eccdebc.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this audio-content preflight stage.
+   Completion standard: only the sidecar main source and two audit docs are
+   staged; branch `codex/switch-audit-20260615` is pushed.
+2. Decide the next content boundary without guessing:
+   Completion standard: either provide/locate `aes_key.bin` and validate RPF
+   listing/extraction outside runtime, or explicitly keep encrypted RPF access
+   out of scope and continue runtime audit with incomplete direct-host content.
+3. If continuing runtime audit with incomplete content, classify the next
+   stable blocker after the audio-content warning.
+   Completion standard: a fresh launch smoke identifies a repeated stub,
+   content miss, exception, or running-thread state after the preflight warning.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/launch-observation boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not add encrypted RPF extraction to the ReX sidecar without a valid AES
+  key and an isolated listing/extraction proof.
+- Do not modify generated GTA IV source for the content-classification
+  boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

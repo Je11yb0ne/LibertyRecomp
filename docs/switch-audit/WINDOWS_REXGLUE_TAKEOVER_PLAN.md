@@ -741,3 +741,26 @@ Switch should stay paused until the Windows sidecar either:
   wrong before adding any fallback.
 - Do not enter renderer work, generated-code edits, or cache symlink mounting
   for this stage.
+
+## 2026-06-22 Update: Audio Content Preflight Diagnostic
+
+- The repeated `game:\xbox360\audio\config` misses have been classified as a
+  content/RPF extraction boundary, not as a missing generated function.
+- Evidence from the real game root:
+  - `audio.rpf` is present and has `RPF2` magic, `tocSize=0x800`,
+    `entryCount=12`, and `encrypted=0xFFFFFFFF`;
+  - `xbox360\audio\sfx` is extracted;
+  - `xbox360\audio\config` and top-level `audio\config` are absent;
+  - no `aes_key.bin` was found under `D:\GTA4 NS`, the repo, or the old Codex
+    workspace.
+- `LibertyRecompRex` now logs a non-blocking audio content preflight before
+  ReXGlue runtime setup and guest launch. It reports the relevant direct-host
+  paths plus `source_audio_rpf`, `game_aes_key`, and `parent_aes_key`.
+- Fresh full-root smoke result:
+  `WINDOWS_REX_AUDIO_CONTENT_PREFLIGHT_PASS default=0 load=0 launch=8 source_audio_rpf=yes game_aes_key=no parent_aes_key=no missing_func=0`.
+- The preflight intentionally does not add encrypted RPF extraction, cache
+  mounts, renderer work, generated-code edits, or thirdparty changes.
+- Next boundary: either locate/provide a valid `aes_key.bin` and prove
+  RPF listing/extraction outside runtime, or keep encrypted RPF access out of
+  scope for now and continue classifying the next launch blocker with the
+  incomplete direct-host content layout clearly logged.

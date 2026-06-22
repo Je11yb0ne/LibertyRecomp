@@ -76,6 +76,14 @@ struct HostPcLocation {
     bool resolved = false;
 };
 
+struct ContentPathProbe {
+    std::filesystem::path path;
+    bool exists = false;
+    bool is_directory = false;
+    bool is_regular_file = false;
+    std::uintmax_t file_size = 0;
+};
+
 const char* yes_no(const bool value) {
     return value ? "yes" : "no";
 }
@@ -445,6 +453,67 @@ bool set_observation_window_from_argument(CommandLineOptions& options, const std
     }
     options.first_launch_observation_window = clamped_window;
     return true;
+}
+
+ContentPathProbe probe_content_path(const std::filesystem::path& path) {
+    std::error_code ec;
+    ContentPathProbe probe;
+    probe.path = path;
+    probe.exists = std::filesystem::exists(path, ec);
+    if (ec || !probe.exists) {
+        return probe;
+    }
+
+    probe.is_directory = std::filesystem::is_directory(path, ec);
+    if (ec) {
+        probe.is_directory = false;
+        ec.clear();
+    }
+
+    probe.is_regular_file = std::filesystem::is_regular_file(path, ec);
+    if (ec) {
+        probe.is_regular_file = false;
+        ec.clear();
+    }
+
+    if (probe.is_regular_file) {
+        probe.file_size = std::filesystem::file_size(path, ec);
+        if (ec) {
+            probe.file_size = 0;
+        }
+    }
+    return probe;
+}
+
+void log_content_path_probe(const char* label, const ContentPathProbe& probe) {
+    REXLOG_INFO(
+        "Content preflight: {} path={} exists={} directory={} file={} size={}",
+        label, probe.path.string(), yes_no(probe.exists), yes_no(probe.is_directory),
+        yes_no(probe.is_regular_file), static_cast<unsigned long long>(probe.file_size));
+}
+
+void log_audio_content_preflight(const std::filesystem::path& game_root) {
+    const auto extracted_audio_config = probe_content_path(game_root / "xbox360" / "audio" / "config");
+    const auto top_level_audio_config = probe_content_path(game_root / "audio" / "config");
+    const auto platform_audio_root = probe_content_path(game_root / "xbox360" / "audio");
+    const auto platform_audio_sfx = probe_content_path(game_root / "xbox360" / "audio" / "sfx");
+    const auto source_audio_rpf = probe_content_path(game_root / "audio.rpf");
+    const auto game_aes_key = probe_content_path(game_root / "aes_key.bin");
+    const auto parent_aes_key = probe_content_path(game_root.parent_path() / "aes_key.bin");
+
+    log_content_path_probe("xbox360_audio_config", extracted_audio_config);
+    log_content_path_probe("top_level_audio_config", top_level_audio_config);
+    log_content_path_probe("xbox360_audio_root", platform_audio_root);
+    log_content_path_probe("xbox360_audio_sfx", platform_audio_sfx);
+    log_content_path_probe("source_audio_rpf", source_audio_rpf);
+    log_content_path_probe("game_aes_key", game_aes_key);
+    log_content_path_probe("parent_aes_key", parent_aes_key);
+
+    if (!extracted_audio_config.exists && !top_level_audio_config.exists) {
+        REXLOG_WARN(
+            "Audio content preflight: missing extracted audio config; source_audio_rpf={} game_aes_key={} parent_aes_key={} policy=host-path-vfs-does-not-read-rpf",
+            yes_no(source_audio_rpf.exists), yes_no(game_aes_key.exists), yes_no(parent_aes_key.exists));
+    }
 }
 
 CommandLineOptions parse_command_line(int argc, char** argv,
@@ -924,6 +993,7 @@ int main(int argc, char** argv) {
     REXLOG_INFO("  Audit LoadXexImage: {}", options.audit_load_xex ? "yes" : "no");
     REXLOG_INFO("  Audit LaunchModule: {}", options.audit_launch_module ? "requested-gated" : "no");
     REXLOG_INFO("  Audit observe_ms: {}", options.first_launch_observation_window.count());
+    log_audio_content_preflight(game_root);
 
     rex::RuntimeConfig config;
     config.tool_mode = true;
