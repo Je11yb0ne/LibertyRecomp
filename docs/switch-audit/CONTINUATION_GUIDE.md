@@ -6995,3 +6995,119 @@ Next stage entry condition:
   boundary.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-22 Windows Continuation 107: Raw Breakpoint Capture And Sidecar Indirect Macro Fix
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Clear the fresh full-root `--audit-launch-module --audit-observe-ms 15000`
+  breakpoint exit without changing generated GTA IV source or ReXGlue SDK
+  binaries.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- Fresh red smoke reproduced process exit `0x80000003` with no
+  `[MISSING-FUNC]` line.
+- ReXGlue's exception observer did not catch this because the vendored Windows
+  exception handler only handles access violations and illegal instructions;
+  Windows `EXCEPTION_BREAKPOINT` continues search.
+- A raw Windows vectored exception observer localized the breakpoint to
+  `pc_rva=0x0000AEDD`, which maps to
+  `LibertyRecompRex/src/forced_ctor_targets.cpp.obj`.
+- The active thunk was `sub_8273A3B0`, which dispatches through
+  `PPC_CALL_INDIRECT_FUNC(...)`.
+- `forced_ctor_targets.cpp` included `<rex/ppc/context.h>` before any generated
+  GTA IV config header. In that mode, ReXGlue intentionally defines
+  `PPC_CALL_INDIRECT_FUNC(x)` as `__builtin_debugtrap()`.
+- Static red check:
+  `EXPECTED_RED_FORCED_CTOR_MISSING_GTA4_CONFIG before_context_line=5`.
+
+Completed in this batch:
+
+- Added a first-launch raw Windows VEH diagnostic to
+  `LibertyRecompRex/src/main.cpp`. It logs breakpoint/illegal-instruction code,
+  host PC/RVA, AMD64 host registers, current PPC registers when available, and
+  native stack frames, then returns `EXCEPTION_CONTINUE_SEARCH`.
+- Kept the raw observer scoped to `--audit-launch-module`; default and
+  `--audit-load-xex` do not install it.
+- Fixed the actual sidecar thunk issue by including `gta4_config.h` before
+  `<rex/ppc/context.h>` in `LibertyRecompRex/src/forced_ctor_targets.cpp`.
+- Did not modify generated GTA IV source, ReXGlue prebuilt libraries,
+  Switch packaging, renderer code, cache mounts, encrypted RPF handling, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- Static green check:
+  `STATIC_FORCED_CTOR_GTA4_CONFIG_GREEN configLine=4 contextLine=7`.
+- `git diff --check -- LibertyRecompRex/src/main.cpp LibertyRecompRex/src/forced_ctor_targets.cpp`
+  exits `0`; only the existing Windows LF/CRLF warnings are reported.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex LibertyRecomp`.
+- Build result:
+  exit `0`; the existing applocal helper still warns that dumpbin/objdump is
+  unavailable.
+- Fresh full-root smoke result:
+  `WINDOWS_REX_BREAKFIX_SMOKE default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 old_breakpoint_aedd=False`.
+- The launch run no longer logs a raw Windows breakpoint and no longer exits
+  through `0x80000003`.
+- The launch run exits through the bounded audit path:
+  `elapsed_ms=15003 running=yes process_exit_code=8 reason=guest-thread-left-running`.
+- The known content/stub state remains visible:
+  `Audio content preflight: missing extracted audio config; source_audio_rpf=yes game_aes_key=no parent_aes_key=no policy=host-path-vfs-does-not-read-rpf`,
+  `30` `game:\xbox360\audio\config` misses, `4` cache `valid.txt` misses,
+  sidecar crypto/UI bridge coverage, and `Stub XFileSectorInformation!` lines.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-breakfix-default-side-d5d1b35e-c6ed-4d6e-976d-0a629f8d14f5.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-breakfix-load-side-d5d1b35e-c6ed-4d6e-976d-0a629f8d14f5.log`;
+  - full-root `--audit-launch-module --audit-observe-ms 15000`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-breakfix-launch15000-side-d5d1b35e-c6ed-4d6e-976d-0a629f8d14f5.log`;
+  - launch stderr boot trace:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-breakfix-launch15000-err-d5d1b35e-c6ed-4d6e-976d-0a629f8d14f5.log`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/main.cpp`,
+  `LibertyRecompRex/src/forced_ctor_targets.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this raw-breakpoint/indirect-macro fix stage.
+   Completion standard: only the two sidecar source files and two audit docs
+   are staged; branch `codex/switch-audit-20260615` is pushed.
+2. Continue runtime audit with the current incomplete direct-host content
+   layout clearly logged.
+   Completion standard: a fresh launch smoke identifies whether the next
+   stable blocker is the encrypted audio config content boundary, a sidecar
+   crypt/UI stub, an XFileSectorInformation behavior gap, or another guest
+   runtime state.
+3. Keep encrypted RPF extraction out of runtime until a valid AES key and an
+   isolated listing/extraction proof exist.
+   Completion standard: no runtime RPF fallback is added by guessing.
+4. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/content/launch-observation boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not remove the raw Windows VEH diagnostic until a later stage proves it is
+  noisy or obsolete; it is useful for future `int3`/illegal-instruction
+  localization.
+- Do not modify generated GTA IV source for the next runtime-classification
+  boundary.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

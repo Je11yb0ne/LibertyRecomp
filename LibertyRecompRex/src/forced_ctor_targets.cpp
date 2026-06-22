@@ -1,6 +1,8 @@
 #include <array>
 #include <cstdint>
 
+#include "gta4_config.h"
+
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>

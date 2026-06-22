@@ -110,6 +110,21 @@ const char* access_operation_name(const rex::arch::Exception::AccessViolationOpe
     }
 }
 
+#ifdef _WIN32
+const char* windows_exception_code_name(const DWORD code) {
+    switch (code) {
+    case EXCEPTION_BREAKPOINT:
+        return "breakpoint";
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+        return "illegal_instruction";
+    case EXCEPTION_ACCESS_VIOLATION:
+        return "access_violation";
+    default:
+        return "unknown";
+    }
+}
+#endif
+
 void flush_rex_loggers() {
     for (const auto& category : rex::GetAllCategories()) {
         if (category.logger) {
@@ -162,6 +177,31 @@ void log_native_stack_trace() {
     }
 #endif
 }
+
+#ifdef _WIN32
+void log_windows_host_registers(const CONTEXT* ctx) {
+#if defined(_M_X64) || defined(__x86_64__)
+    if (ctx == nullptr) {
+        REXLOG_ERROR("First-launch audit: raw-host-registers unavailable=yes");
+        return;
+    }
+
+    REXLOG_ERROR(
+        "First-launch audit: raw-host-registers rip=0x{:016X} rax=0x{:016X} rcx=0x{:016X} rdx=0x{:016X} rbx=0x{:016X} rsp=0x{:016X} rbp=0x{:016X} rsi=0x{:016X} rdi=0x{:016X} r8=0x{:016X} r9=0x{:016X} r10=0x{:016X} r11=0x{:016X} r12=0x{:016X} r13=0x{:016X} r14=0x{:016X} r15=0x{:016X}",
+        static_cast<std::uint64_t>(ctx->Rip), static_cast<std::uint64_t>(ctx->Rax),
+        static_cast<std::uint64_t>(ctx->Rcx), static_cast<std::uint64_t>(ctx->Rdx),
+        static_cast<std::uint64_t>(ctx->Rbx), static_cast<std::uint64_t>(ctx->Rsp),
+        static_cast<std::uint64_t>(ctx->Rbp), static_cast<std::uint64_t>(ctx->Rsi),
+        static_cast<std::uint64_t>(ctx->Rdi), static_cast<std::uint64_t>(ctx->R8),
+        static_cast<std::uint64_t>(ctx->R9), static_cast<std::uint64_t>(ctx->R10),
+        static_cast<std::uint64_t>(ctx->R11), static_cast<std::uint64_t>(ctx->R12),
+        static_cast<std::uint64_t>(ctx->R13), static_cast<std::uint64_t>(ctx->R14),
+        static_cast<std::uint64_t>(ctx->R15));
+#else
+    (void)ctx;
+#endif
+}
+#endif
 
 void log_host_registers(const rex::arch::Exception* ex) {
 #if REX_ARCH_AMD64
@@ -257,6 +297,14 @@ public:
     FirstLaunchFailureCapture& operator=(const FirstLaunchFailureCapture&) = delete;
 
     ~FirstLaunchFailureCapture() {
+#ifdef _WIN32
+        if (windows_veh_ != nullptr) {
+            RemoveVectoredExceptionHandler(windows_veh_);
+            windows_veh_ = nullptr;
+            auto* expected = this;
+            active_windows_capture_.compare_exchange_strong(expected, nullptr);
+        }
+#endif
         if (installed_) {
             rex::arch::ExceptionHandler::Uninstall(&FirstLaunchFailureCapture::HandleException,
                                                    this);
@@ -268,6 +316,19 @@ public:
             return;
         }
 
+#ifdef _WIN32
+        active_windows_capture_.store(this, std::memory_order_release);
+        windows_veh_ =
+            AddVectoredExceptionHandler(1, &FirstLaunchFailureCapture::HandleWindowsException);
+        if (windows_veh_ == nullptr) {
+            REXLOG_WARN(
+                "First-launch audit: raw Windows breakpoint observer install failed action=continue-with-rex-observer");
+        } else {
+            REXLOG_INFO(
+                "First-launch audit: raw Windows breakpoint observer installed structured_exception=windows_veh action=continue-search log_path={}",
+                log_path_.string());
+        }
+#endif
         rex::arch::ExceptionHandler::Install(&FirstLaunchFailureCapture::HandleException, this);
         installed_ = true;
 
@@ -281,6 +342,47 @@ private:
     static bool HandleException(rex::arch::Exception* ex, void* data) {
         return static_cast<FirstLaunchFailureCapture*>(data)->OnException(ex);
     }
+
+#ifdef _WIN32
+    static LONG CALLBACK HandleWindowsException(PEXCEPTION_POINTERS ex_info) {
+        auto* self = active_windows_capture_.load(std::memory_order_acquire);
+        if (self == nullptr) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        return self->OnWindowsException(ex_info);
+    }
+
+    LONG OnWindowsException(PEXCEPTION_POINTERS ex_info) {
+        if (ex_info == nullptr || ex_info->ExceptionRecord == nullptr) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        const DWORD code = ex_info->ExceptionRecord->ExceptionCode;
+        if (code != EXCEPTION_BREAKPOINT && code != EXCEPTION_ILLEGAL_INSTRUCTION) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        const auto sequence =
+            windows_exception_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+        const auto pc = ex_info->ContextRecord != nullptr
+                            ? static_cast<std::uint64_t>(ex_info->ContextRecord->Rip)
+                            : reinterpret_cast<std::uint64_t>(
+                                  ex_info->ExceptionRecord->ExceptionAddress);
+        const auto pc_location = locate_host_pc(pc);
+
+        REXLOG_ERROR(
+            "First-launch audit: raw Windows exception observed sequence={} code={} code_hex=0x{:08X} pc=0x{:016X} host_module={} module_base=0x{:016X} pc_rva=0x{:08X} resolved={} action=continue-search raw_veh=yes",
+            sequence, windows_exception_code_name(code), static_cast<std::uint32_t>(code), pc,
+            pc_location.module_path, static_cast<std::uint64_t>(pc_location.module_base),
+            static_cast<std::uint64_t>(pc_location.rva), yes_no(pc_location.resolved));
+        log_windows_host_registers(ex_info->ContextRecord);
+        log_current_ppc_context_registers();
+        log_native_stack_trace();
+        flush_rex_loggers();
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+#endif
 
     bool OnException(rex::arch::Exception* ex) {
         const auto sequence = exception_count_.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -307,6 +409,11 @@ private:
 
     std::filesystem::path log_path_;
     std::atomic_uint32_t exception_count_{0};
+#ifdef _WIN32
+    std::atomic_uint32_t windows_exception_count_{0};
+    void* windows_veh_ = nullptr;
+    inline static std::atomic<FirstLaunchFailureCapture*> active_windows_capture_{nullptr};
+#endif
     bool installed_ = false;
 };
 

@@ -764,3 +764,33 @@ Switch should stay paused until the Windows sidecar either:
   RPF listing/extraction outside runtime, or keep encrypted RPF access out of
   scope for now and continue classifying the next launch blocker with the
   incomplete direct-host content layout clearly logged.
+
+## 2026-06-22 Update: Raw Breakpoint Capture And Sidecar Indirect Macro Fix
+
+- A fresh full-root `--audit-launch-module --audit-observe-ms 15000` run
+  exposed a new host exit path: `0x80000003` (`EXCEPTION_BREAKPOINT`) with no
+  `[MISSING-FUNC]` diagnostics.
+- The first-launch diagnostic now installs a raw Windows VEH only for
+  `--audit-launch-module`. It logs breakpoint/illegal-instruction code,
+  host PC/RVA, AMD64 host registers, PPC registers when available, and a native
+  stack, then continues search without swallowing the exception.
+- The diagnostic localized the breakpoint to `pc_rva=0x0000AEDD` in
+  `forced_ctor_targets.cpp.obj`, inside the sidecar `sub_8273A3B0` thunk.
+- Root cause: `LibertyRecompRex/src/forced_ctor_targets.cpp` included
+  `<rex/ppc/context.h>` before the generated GTA IV config header. Without
+  `PPC_CONFIG_H_INCLUDED`, ReXGlue defines `PPC_CALL_INDIRECT_FUNC(x)` as
+  `__builtin_debugtrap()`, so the sidecar vtable trampoline compiled into an
+  intentional `int3`.
+- Minimal fix: include `gta4_config.h` before `<rex/ppc/context.h>` in
+  `forced_ctor_targets.cpp`.
+- Fresh verification:
+  `WINDOWS_REX_BREAKFIX_SMOKE default=0 load=0 launch=8 launch_hex=00000008 missing_func=0 old_breakpoint_aedd=False`.
+- The old breakpoint exit is cleared. The 15-second launch returns to the
+  bounded running-thread audit path with no raw Windows exception line and no
+  `[MISSING-FUNC]` line.
+- The next runtime boundary remains content/runtime classification after the
+  known audio-config warning: the run still logs missing extracted
+  `game:\xbox360\audio\config`, expected cache misses, sidecar crypto/UI bridge
+  coverage, and repeated `Stub XFileSectorInformation!` lines. Do not enter
+  renderer work or encrypted RPF fallback work for this blocker without a
+  narrower proof.
