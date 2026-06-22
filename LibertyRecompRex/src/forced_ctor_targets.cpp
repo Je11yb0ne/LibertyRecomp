@@ -100,6 +100,13 @@ PPC_FUNC(sub_821735D0) {
     sub_821735F4(ctx, base);
 }
 
+PPC_FUNC(sub_8273A3B0) {
+    ctx.r12.u64 = PPC_LOAD_U32(ctx.r3.u32 + 0);
+    ctx.r11.u64 = PPC_LOAD_U32(ctx.r12.u32 + 76);
+    ctx.ctr.u64 = ctx.r11.u64;
+    PPC_CALL_INDIRECT_FUNC(ctx.ctr.u32);
+}
+
 struct ForcedCtorTarget {
     std::uint32_t guest;
     PPCFunc* host;
@@ -117,9 +124,10 @@ constexpr std::array<ForcedCtorTarget, 9> kForcedCtorTargets{{
     {0x829F9DC8, sub_829F9DC8},
 }};
 
-constexpr std::array<ForcedCtorTarget, 2> kMidFunctionTargets{{
+constexpr std::array<ForcedCtorTarget, 3> kMidFunctionTargets{{
     {0x828076F8, sub_828076F8},
     {0x821735D0, sub_821735D0},
+    {0x8273A3B0, sub_8273A3B0},
 }};
 
 }  // namespace

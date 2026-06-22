@@ -6560,3 +6560,132 @@ Next stage entry condition:
 - Do not invent no-op stubs for mid-function targets.
 - Do not modify thirdparty submodules.
 - Keep Switch paused.
+
+## 2026-06-21 Windows Continuation 103: Vtable Trampoline Mapping
+
+Current mainline goal:
+
+- Keep Switch paused except as a later regression/portability reference.
+- Continue the Windows-first ReXGlue sidecar route through `LibertyRecompRex`.
+- Clear only the proven `0x8273A3B0` missing-indirect vtable trampoline after
+  classifying its generated-code context.
+- Do not claim Windows or Switch playability.
+
+Root-cause and reference evidence:
+
+- After the `0x821735D0` thunk mapping, launch no longer emitted missing-
+  indirect diagnostics for `0x821735D0`.
+- The new repeated missing-indirect target was `0x8273A3B0`, with caller
+  `lr=0x82821C5C`.
+- `lr=0x82821C5C` is inside generated `__imp__sub_82821BE0`, which chooses
+  between two callback registers (`r26` / `r27`) while iterating objects.
+- `0x8273A3B0` lies between generated `sub_8273A3A0` and `sub_8273A3C0`.
+- `sub_8273A3A0` is a tiny vtable trampoline that loads `vtable+72` and
+  dispatches through `bctr`.
+- The missing `0x8273A3B0` target fits the adjacent tiny vtable trampoline for
+  `vtable+76`, before the next generated function at `0x8273A3C0`.
+
+Completed in this batch:
+
+- Extended `LibertyRecompRex/src/forced_ctor_targets.cpp` with a sidecar-only
+  vtable trampoline for `0x8273A3B0`.
+- The thunk reads the object vtable from `r3+0`, loads the function pointer at
+  `vtable+76`, and dispatches through `PPC_CALL_INDIRECT_FUNC(...)`.
+- Kept the change sidecar-only. Did not modify generated GTA IV source,
+  ReXGlue prebuilt kernel libraries, Switch packaging, renderer code, or
+  thirdparty submodules.
+
+Fresh verification:
+
+- TDD red evidence:
+  the previous final launch smoke ended with
+  `WINDOWS_REX_821735D0_FINAL_PASS default=0 load=0 launch=8 next=8273A3B0`
+  and repeated `[MISSING-FUNC] ... 8273A3B0` lines.
+- Build command:
+  `ninja -C C:\Users\Jellybone\Documents\Codex\2026-06-12\d-gta4-ns\work\liberty-build-x64-clang-nomanifest -j 4 LibertyRecompRex`.
+- Build result:
+  succeeded and relinked `LibertyRecompRex.exe`; the existing applocal helper
+  still warns that dumpbin/objdump is unavailable, but the build exits `0`.
+- Green full-root launch result:
+  `MIDFUNC_8273A3B0_GREEN_PASS exit=8`.
+- Green evidence:
+  - `Mid-function target audit: registered 3 sidecar thunk targets`;
+  - no `0x8273A3B0` remains in the missing-indirect stderr log;
+  - no `0x821735D0` or `0x828076F8` regression.
+- New launch boundary:
+  no new `[MISSING-FUNC]` line was emitted in the green run. The run advanced
+  to guest thread creation and repeated VFS failures for `cache:\valid.txt`
+  and `cache1:\valid.txt` because no `cache:` / `cache1:` devices are mounted.
+- The green run still exits through the bounded audit path with guest threads
+  running: `elapsed_ms=6388 running=yes process_exit_code=8
+  reason=guest-thread-left-running`.
+- Green log paths:
+  - stdout:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-8273a3b0-green-out-1d9cacb5-89ef-4c5e-95e4-24042224e4ec.log`;
+  - stderr:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-8273a3b0-green-err-1d9cacb5-89ef-4c5e-95e4-24042224e4ec.log`;
+  - sidecar log:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-8273a3b0-green-side-1d9cacb5-89ef-4c5e-95e4-24042224e4ec.log`.
+- Final verification command:
+  scoped `git diff --check`, `ninja ... LibertyRecompRex LibertyRecomp`,
+  default sidecar run, full-root `--audit-load-xex`, and full-root
+  `--audit-launch-module`.
+- Final verification result:
+  `WINDOWS_REX_8273A3B0_FINAL_PASS default=0 load=0 launch=8 missing_func=0 next=cache_cache1_vfs`.
+- Final smoke evidence:
+  - default sidecar received the full game root, registered `3` sidecar thunk
+    targets, parsed XEX metadata, and reached the tool-mode pre-guest boundary;
+  - full-root `--audit-load-xex` returned `LoadXexImage returned 00000000;
+    LaunchModule skipped`;
+  - full-root `--audit-launch-module` registered `3` sidecar thunk targets,
+    emitted no `[MISSING-FUNC]` lines, reached `Runtime::LaunchModule`, and
+    exited through the bounded audit path with
+    `reason=guest-thread-left-running`.
+- Final smoke log paths:
+  - default sidecar:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final4d-default-side-941d2daf-673d-4fe4-b1e5-381c25ebf672.log`;
+  - full-root `--audit-load-xex`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final4d-load-side-941d2daf-673d-4fe4-b1e5-381c25ebf672.log`;
+  - full-root `--audit-launch-module`:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final4d-launch-side-941d2daf-673d-4fe4-b1e5-381c25ebf672.log`;
+  - launch stderr with no `[MISSING-FUNC]` lines:
+    `C:\Users\JELLYB~1\AppData\Local\Temp\liberty-rex-final4d-launch-err-941d2daf-673d-4fe4-b1e5-381c25ebf672.log`.
+- Final next-boundary evidence:
+  - `ResolvePath(cache:\) failed - device not found`;
+  - `[NtCreateFile] FAILED: path='cache:\valid.txt' -> 0xc000000f`;
+  - `ResolvePath(cache1:\) failed - device not found`;
+  - `[NtCreateFile] FAILED: path='cache1:\valid.txt' -> 0xc000000f`.
+
+Current dirty worktree boundaries:
+
+- Allowed current-stage files:
+  `LibertyRecompRex/src/forced_ctor_targets.cpp`,
+  `docs/switch-audit/CONTINUATION_GUIDE.md`,
+  `docs/switch-audit/WINDOWS_REXGLUE_TAKEOVER_PLAN.md`.
+- Existing unrelated dirty entries remain out of scope:
+  `.codex/`,
+  `.planning/`,
+  thirdparty submodules,
+  `tools/XenonRecomp`.
+
+Next small tasks:
+
+1. Commit and push this `0x8273A3B0` vtable trampoline mapping stage.
+   Completion standard: only the sidecar thunk source and audit docs are
+   staged; the commit message states the Windows/ReXGlue vtable trampoline
+   boundary; branch `codex/switch-audit-20260615` is pushed.
+2. Classify the next VFS/cache boundary.
+   Completion standard: identify what ReXGlue device mapping should back
+   `cache:` and `cache1:` for Windows sidecar audit runs, and whether a local
+   cache directory is sufficient before adding mounts.
+3. Keep Vulkan/native renderer work as a later boundary.
+   Completion standard: do not enable renderer implementation while runtime
+   VFS/module boundaries are still moving.
+
+Next stage entry condition:
+
+- Re-read this guide after final verification and commit.
+- Do not modify generated GTA IV source for this boundary.
+- Do not add cache mounts until the expected host layout is documented.
+- Do not modify thirdparty submodules.
+- Keep Switch paused.

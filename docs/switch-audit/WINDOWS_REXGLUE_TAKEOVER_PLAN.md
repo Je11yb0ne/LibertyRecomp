@@ -658,3 +658,32 @@ Switch should stay paused until the Windows sidecar either:
   generated `sub_8273A3A0` and `sub_8273A3C0`.
 - Final verification for this boundary:
   `WINDOWS_REX_821735D0_FINAL_PASS default=0 load=0 launch=8 next=8273A3B0`.
+
+## 2026-06-21 Update: Vtable Trampoline Mapping
+
+- The repeated `0x8273A3B0` missing-indirect target has been classified and
+  advanced in the Windows `LibertyRecompRex` sidecar.
+- Root cause: generated `__imp__sub_82821BE0` dispatches through a callback
+  register while iterating objects. Runtime data points that callback to
+  `0x8273A3B0`, which lies between generated `sub_8273A3A0` and
+  `sub_8273A3C0`.
+- Minimal fix: the sidecar now registers `0x8273A3B0` as a vtable trampoline
+  that loads the object vtable from `r3+0`, reads the function pointer at
+  `vtable+76`, and dispatches through `PPC_CALL_INDIRECT_FUNC(...)`.
+- Fresh red/green evidence:
+  - red was the previous final smoke with repeated `[MISSING-FUNC] ...
+    8273A3B0`;
+  - green logs `Mid-function target audit: registered 3 sidecar thunk targets`
+    and no longer emits `0x8273A3B0`, `0x821735D0`, or `0x828076F8` in
+    missing-indirect stderr.
+- New launch boundary after this stage: no new `[MISSING-FUNC]` line is
+  emitted. The run advances to guest thread creation and logs missing
+  `cache:` / `cache1:` VFS devices for `cache:\valid.txt` and
+  `cache1:\valid.txt`, then exits through the bounded audit path with guest
+  threads still running.
+- Final verification for this boundary:
+  `WINDOWS_REX_8273A3B0_FINAL_PASS default=0 load=0 launch=8 missing_func=0
+  next=cache_cache1_vfs`.
+- The next implementation boundary should classify the expected ReXGlue VFS
+  host layout for `cache:` and `cache1:` before adding any mounts. Do not enter
+  renderer work for this blocker.
